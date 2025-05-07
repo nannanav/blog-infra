@@ -88,7 +88,7 @@ jobs:
                     TAG_SUFFIX="qa"
                     ;;
                   uat)
-                    TAG_SUFFIX="uat"
+                    TAG_SUFFIX="rc"
                     ;;
                   prod)
                     TAG_SUFFIX="stable"
@@ -127,15 +127,18 @@ jobs:
             exit 1
           fi
           
-          # Process all manifest files and replace placeholders
-          for file in $MANIFEST_PATH/*.yaml; do
-            echo "Processing $file"
+          # Helper function to process a manifest file with variable substitution
+          process_manifest() {
+            local file="$1"
+            local output_name="$2"
+            
+            echo "Processing manifest: $file -> $output_name"
             
             # Start with the original file
-            cat $file > temp.yaml
+            cat "$file" > "processed-manifests/$output_name"
             
             # Replace ECR_URL
-            sed -i "s|\$ECR_URL|${{ secrets.ECR_URL }}|g" temp.yaml
+            sed -i "s|\$ECR_URL|${{ secrets.ECR_URL }}|g" "processed-manifests/$output_name"
             
             # Replace service versions
             services=("user-service" "post-service" "frontend" "comment-service")
@@ -143,25 +146,75 @@ jobs:
               # Convert service name to upper case with underscores for variable name
               VAR_NAME=$(echo $service | tr '-' '_' | tr '[:lower:]' '[:upper:]')
               VERSION=$(cat k8s-versions/${service}-version)
-              # Notice the escaped dollar sign \$ to properly reference variables in manifest files
-              sed -i "s|\\\${VAR_NAME}_VERSION|${VERSION}|g" temp.yaml
+              # Properly escaped dollar sign for variable references
+              sed -i "s|\\\$${VAR_NAME}_VERSION|${VERSION}|g" "processed-manifests/$output_name"
             done
+          }
+          
+          # Process top-level yaml files in the environment directory
+          echo "Processing common manifests in $MANIFEST_PATH..."
+          for file in "$MANIFEST_PATH"/*.yaml; do
+            # Skip if no files match the pattern
+            [ -e "$file" ] || continue
             
-            # Print the content of processed file for debugging
-            echo "Processed content of $(basename $file):"
-            # cat temp.yaml
-            
-            # Move to processed directory
-            mv temp.yaml processed-manifests/$(basename $file)
+            # Process the manifest
+            process_manifest "$file" "$(basename "$file")"
           done
+          
+          # Process service-specific manifests for changed services
+          if [ -n "$CHANGED_SERVICES" ]; then
+            for service in $CHANGED_SERVICES; do
+              SERVICE_DIR="$MANIFEST_PATH/$service"
+              
+              if [ -d "$SERVICE_DIR" ]; then
+                echo "Processing manifests for changed service: $service"
+                
+                # Process yaml files directly in the service directory
+                for file in "$SERVICE_DIR"/*.yaml; do
+                  # Skip if no files match the pattern
+                  [ -e "$file" ] || continue
+                  
+                  # Process the manifest with service prefix to avoid name conflicts
+                  process_manifest "$file" "${service}-$(basename "$file")"
+                done
+                
+                # Process yaml files in subdirectories under the service directory
+                find "$SERVICE_DIR" -type d -not -path "$SERVICE_DIR" | while read subdir; do
+                  # Extract the subdirectory name relative to the service directory
+                  relative_path="${subdir#$SERVICE_DIR/}"
+                  echo "Processing subdirectory: $relative_path"
+                  
+                  for file in "$subdir"/*.yaml; do
+                    # Skip if no files match the pattern
+                    [ -e "$file" ] || continue
+                    
+                    # Create output name with service and subdirectory prefixes
+                    output_name="${service}-${relative_path//\//-}-$(basename "$file")"
+                    
+                    # Process the manifest
+                    process_manifest "$file" "$output_name"
+                  done
+                done
+              else
+                echo "No service-specific directory found for $service"
+              fi
+            done
+          else
+            echo "No services have changed - only applying common manifests"
+          fi
           
           # List processed manifests
           echo "Processed manifest files:"
           ls -la processed-manifests/
           
           echo "Applying manifest files:"
-          # Apply manifests to target namespace
-          kubectl apply -f processed-manifests/ -n ${{ env.NAMESPACE }}
+          # Apply manifests to target namespace if any manifests were processed
+          if [ "$(ls -A processed-manifests/)" ]; then
+            echo "Applying manifests to namespace ${{ env.NAMESPACE }}..."
+            kubectl apply -f processed-manifests/ -n ${{ env.NAMESPACE }}
+          else
+            echo "No manifests to apply. Skipping kubectl apply."
+          fi
           
           # Verify deployments
           kubectl get deployments -n ${{ env.NAMESPACE }}

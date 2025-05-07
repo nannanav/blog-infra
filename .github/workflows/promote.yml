@@ -1,0 +1,153 @@
+name: Promote Service
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Source environment to promote from (qa/uat)'
+        required: true
+        type: choice
+        options:
+          - qa
+          - uat
+      service:
+        description: 'Service to promote'
+        required: true
+        type: choice
+        options:
+          - frontend
+          - post-service
+          - user-service
+          - comment-service
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine target environment
+        id: target-env
+        run: |
+          # Determine target environment based on source
+          if [ "${{ github.event.inputs.environment }}" == "qa" ]; then
+            echo "TARGET_ENV=uat" >> $GITHUB_ENV
+            echo "SOURCE_TAG_SUFFIX=qa" >> $GITHUB_ENV
+            echo "TARGET_TAG_SUFFIX=rc" >> $GITHUB_ENV
+          elif [ "${{ github.event.inputs.environment }}" == "uat" ]; then
+            echo "TARGET_ENV=prod" >> $GITHUB_ENV
+            echo "SOURCE_TAG_SUFFIX=rc" >> $GITHUB_ENV
+            echo "TARGET_TAG_SUFFIX=" >> $GITHUB_ENV
+          else
+            echo "Invalid source environment"
+            exit 1
+          fi
+          
+          echo "target_env=${{ env.TARGET_ENV }}" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Promote service image
+        id: promote-image
+        run: |
+          SERVICE="${{ github.event.inputs.service }}"
+          SOURCE_ENV="${{ github.event.inputs.environment }}"
+          TARGET_ENV="${{ env.TARGET_ENV }}"
+          SOURCE_TAG_SUFFIX="${{ env.SOURCE_TAG_SUFFIX }}"
+          TARGET_TAG_SUFFIX="${{ env.TARGET_TAG_SUFFIX }}"
+          
+          echo "Promoting $SERVICE from $SOURCE_ENV to $TARGET_ENV"
+          
+          # Find the latest versioned image for the service in source environment
+          SOURCE_IMAGE=$(aws ecr describe-images \
+            --repository-name blog-platform/$SERVICE \
+            --query "imageDetails[?contains(imageTags, \`latest-${SOURCE_TAG_SUFFIX}\`)].[imageTags, imageDigest]" \
+            --output json | jq -r '.[0][0][] | select(contains("latest-'${SOURCE_TAG_SUFFIX}'") | not) | select(contains("-'${SOURCE_TAG_SUFFIX}'"))' | sort -V | tail -n 1)
+          
+          if [ -z "$SOURCE_IMAGE" ]; then
+            echo "Error: Could not find source image for $SERVICE in $SOURCE_ENV"
+            exit 1
+          fi
+          
+          # Get the image version without the suffix
+          VERSION=$(echo $SOURCE_IMAGE | sed "s/-${SOURCE_TAG_SUFFIX}//")
+          
+          echo "Found source image: $SOURCE_IMAGE (version: $VERSION)"
+          
+          # Get the image digest
+          IMAGE_DIGEST=$(aws ecr describe-images \
+            --repository-name blog-platform/$SERVICE \
+            --query "imageDetails[?contains(imageTags, \`${SOURCE_IMAGE}\`)].imageDigest" \
+            --output text)
+          
+          if [ -z "$IMAGE_DIGEST" ]; then
+            echo "Error: Could not find image digest"
+            exit 1
+          fi
+          
+          # Create target tags based on environment
+          ECR_URL="${{ secrets.ECR_URL }}"
+          SOURCE_URI="${ECR_URL}/blog-platform/${SERVICE}@${IMAGE_DIGEST}"
+          
+          if [ "$TARGET_ENV" == "prod" ]; then
+            # For production, tag with version, latest, and stable
+            TARGET_TAGS=("$VERSION" "latest" "stable")
+          else
+            # For UAT, tag with version-rc and latest-rc
+            TARGET_TAGS=("${VERSION}-${TARGET_TAG_SUFFIX}" "latest-${TARGET_TAG_SUFFIX}")
+          fi
+          
+          # Pull the source image
+          docker pull $SOURCE_URI
+          
+          # Tag and push the image with all target tags
+          for TARGET_TAG in "${TARGET_TAGS[@]}"; do
+            TARGET_URI="${ECR_URL}/blog-platform/${SERVICE}:${TARGET_TAG}"
+            echo "Tagging and pushing: $TARGET_URI"
+            
+            docker tag $SOURCE_URI $TARGET_URI
+            docker push $TARGET_URI
+          done
+          
+          # Output the version for deployment
+          if [ "$TARGET_ENV" == "prod" ]; then
+            DEPLOY_VERSION="$VERSION"
+          else
+            DEPLOY_VERSION="${VERSION}-${TARGET_TAG_SUFFIX}"
+          fi
+          
+          echo "deploy_version=$DEPLOY_VERSION" >> $GITHUB_OUTPUT
+          echo "Successfully promoted $SERVICE from $SOURCE_ENV to $TARGET_ENV with version $DEPLOY_VERSION"
+
+      - name: Trigger deployment
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GH_ACCESS_TOKEN }}
+          script: |
+            // Prepare deploy info with the promoted service
+            const deployInfo = {
+              images: {
+                '${{ github.event.inputs.service }}': '${{ steps.promote-image.outputs.deploy_version }}'
+              },
+              changed_services: ['${{ github.event.inputs.service }}']
+            };
+            
+            // Trigger deployment to target environment
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy.yml',
+              ref: context.ref,
+              inputs: {
+                environment: '${{ steps.target-env.outputs.target_env }}',
+                deploy_info: JSON.stringify(deployInfo)
+              }
+            });
+            
+            console.log('Triggered deployment to ${{ steps.target-env.outputs.target_env }} environment for service ${{ github.event.inputs.service }}');
