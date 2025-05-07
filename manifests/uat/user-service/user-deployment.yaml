@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: user-service
-        image: $ECR_URL/blog-platform/user-service:$USER_SERVICE_VERSION
+        image: ${ECR_URL}/blog-platform/user-service:latest
         ports:
         - containerPort: 8081
         env:

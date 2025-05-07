@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: post-service
-        image: $ECR_URL/blog-platform/post-service:$POST_SERVICE_VERSION
+        image: ${ECR_URL}/blog-platform/post-service:latest
         ports:
         - containerPort: 8082
         env:

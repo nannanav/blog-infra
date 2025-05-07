@@ -1,4 +1,4 @@
-# prod-apps.yaml
+# qa-apps.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -34,7 +34,7 @@ spec:
         path: '{{path}}'
       destination:
         server: https://kubernetes.default.svc
-        namespace: blog
+        namespace: qa
       syncPolicy:
         automated:
           prune: true

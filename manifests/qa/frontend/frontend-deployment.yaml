@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: $ECR_URL/blog-platform/frontend:$FRONTEND_VERSION
+        image: ${ECR_URL}/blog-platform/frontend:latest
         ports:
         - containerPort: 80
         resources:

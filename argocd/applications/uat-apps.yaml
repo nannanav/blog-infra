@@ -1,4 +1,4 @@
-# prod-apps.yaml
+# uat-apps.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -29,12 +29,12 @@ spec:
     spec:
       project: default
       source:
-        repoURL: https://github.com/your-org/blog-infra.git
+        repoURL: https://github.com/blog-platform/blog-infra.git
         targetRevision: main
         path: '{{path}}'
       destination:
         server: https://kubernetes.default.svc
-        namespace: blog
+        namespace: uat
       syncPolicy:
         automated:
           prune: true
