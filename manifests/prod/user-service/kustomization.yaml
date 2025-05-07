@@ -7,6 +7,6 @@ resources:
 namespace: blog
 
 images:
-- name: ${ECR_URL}/blog-platform/user-service
-  newName: ${ECR_URL}/blog-platform/user-service
+- name: http://575108917104.dkr.ecr.us-east-1.amazonaws.com//blog-platform/user-service
+  newName: http://575108917104.dkr.ecr.us-east-1.amazonaws.com//blog-platform/user-service
   newTag: 1.0.0  # This will be updated by ArgoCD Image Updater
