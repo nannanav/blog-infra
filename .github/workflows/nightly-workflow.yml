@@ -58,10 +58,10 @@ jobs:
             fi
           fi
           
-          # Create new nightly tag
-          NIGHTLY_TAG="nightly-$(date +'%Y%m%d')"
-          git tag $NIGHTLY_TAG
-          git push origin $NIGHTLY_TAG
+          # Create new nightly tag using epoch time (seconds since Unix epoch)
+          NIGHTLY_TAG="nightly-$(date +'%Y%m%d-%H%M%S')"
+          git tag "$NIGHTLY_TAG"
+          git push origin "$NIGHTLY_TAG"
 
       - name: Get current version numbers
         id: current_versions
