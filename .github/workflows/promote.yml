@@ -104,7 +104,7 @@ jobs:
           fi
           
           # Pull the source image
-          docker pull $SOURCE_URI
+          docker pull --platform=linux/arm64 $SOURCE_URI
           
           # Tag and push the image with all target tags
           for TARGET_TAG in "${TARGET_TAGS[@]}"; do
