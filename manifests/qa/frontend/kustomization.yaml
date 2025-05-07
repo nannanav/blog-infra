@@ -7,6 +7,6 @@ resources:
 namespace: qa
 
 images:
-- name: http://575108917104.dkr.ecr.us-east-1.amazonaws.com//blog-platform/frontend
-  newName: http://575108917104.dkr.ecr.us-east-1.amazonaws.com//blog-platform/frontend
+- name: http://575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/frontend
+  newName: http://575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/frontend
   newTag: 1.0.0-qa  # This will be updated by ArgoCD Image Updater

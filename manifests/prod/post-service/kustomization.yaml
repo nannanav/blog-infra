@@ -7,6 +7,6 @@ resources:
 namespace: blog
 
 images:
-- name: http://575108917104.dkr.ecr.us-east-1.amazonaws.com//blog-platform/post-service
-  newName: http://575108917104.dkr.ecr.us-east-1.amazonaws.com//blog-platform/post-service
+- name: http://575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/post-service
+  newName: http://575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/post-service
   newTag: 1.0.0  # This will be updated by ArgoCD Image Updater
