@@ -29,19 +29,25 @@ jobs:
         run: |
           # Determine target environment based on source
           if [ "${{ github.event.inputs.environment }}" == "qa" ]; then
-            echo "TARGET_ENV=uat" >> $GITHUB_ENV
-            echo "SOURCE_TAG_SUFFIX=qa" >> $GITHUB_ENV
-            echo "TARGET_TAG_SUFFIX=rc" >> $GITHUB_ENV
+            TARGET_ENV="uat"
+            SOURCE_TAG_SUFFIX="qa"
+            TARGET_TAG_SUFFIX="rc"
           elif [ "${{ github.event.inputs.environment }}" == "uat" ]; then
-            echo "TARGET_ENV=prod" >> $GITHUB_ENV
-            echo "SOURCE_TAG_SUFFIX=rc" >> $GITHUB_ENV
-            echo "TARGET_TAG_SUFFIX=" >> $GITHUB_ENV
+            TARGET_ENV="prod"
+            SOURCE_TAG_SUFFIX="rc"
+            TARGET_TAG_SUFFIX=""
           else
             echo "Invalid source environment"
             exit 1
           fi
           
-          echo "target_env=${{ env.TARGET_ENV }}" >> $GITHUB_OUTPUT
+          echo "TARGET_ENV=$TARGET_ENV" >> $GITHUB_ENV
+          echo "SOURCE_TAG_SUFFIX=$SOURCE_TAG_SUFFIX" >> $GITHUB_ENV
+          echo "TARGET_TAG_SUFFIX=$TARGET_TAG_SUFFIX" >> $GITHUB_ENV
+          
+          echo "target_env=$TARGET_ENV" >> $GITHUB_OUTPUT
+          echo "source_tag_suffix=$SOURCE_TAG_SUFFIX" >> $GITHUB_OUTPUT
+          echo "target_tag_suffix=$TARGET_TAG_SUFFIX" >> $GITHUB_OUTPUT
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -58,9 +64,9 @@ jobs:
         run: |
           SERVICE="${{ github.event.inputs.service }}"
           SOURCE_ENV="${{ github.event.inputs.environment }}"
-          TARGET_ENV="${{ env.TARGET_ENV }}"
-          SOURCE_TAG_SUFFIX="${{ env.SOURCE_TAG_SUFFIX }}"
-          TARGET_TAG_SUFFIX="${{ env.TARGET_TAG_SUFFIX }}"
+          TARGET_ENV="${{ steps.target-env.outputs.target_env }}"
+          SOURCE_TAG_SUFFIX="${{ steps.target-env.outputs.source_tag_suffix }}"
+          TARGET_TAG_SUFFIX="${{ steps.target-env.outputs.target_tag_suffix }}"
           
           echo "Promoting $SERVICE from $SOURCE_ENV to $TARGET_ENV"
           
@@ -130,10 +136,16 @@ jobs:
         with:
           github-token: ${{ secrets.GH_ACCESS_TOKEN }}
           script: |
+            // Get target environment from outputs
+            const targetEnv = '${{ steps.target-env.outputs.target_env }}';
+            const deployVersion = '${{ steps.promote-image.outputs.deploy_version }}';
+            
+            console.log(`Preparing deployment to ${targetEnv} with version ${deployVersion}`);
+            
             // Prepare deploy info with the promoted service
             const deployInfo = {
               images: {
-                '${{ github.event.inputs.service }}': '${{ steps.promote-image.outputs.deploy_version }}'
+                '${{ github.event.inputs.service }}': deployVersion
               },
               changed_services: ['${{ github.event.inputs.service }}']
             };
@@ -145,9 +157,9 @@ jobs:
               workflow_id: 'deploy.yml',
               ref: context.ref,
               inputs: {
-                environment: '${{ steps.target-env.outputs.target_env }}',
+                environment: targetEnv,
                 deploy_info: JSON.stringify(deployInfo)
               }
             });
             
-            console.log('Triggered deployment to ${{ steps.target-env.outputs.target_env }} environment for service ${{ github.event.inputs.service }}');
+            console.log(`Triggered deployment to ${targetEnv} environment for service ${{ github.event.inputs.service }}`);
