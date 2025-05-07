@@ -1,0 +1,201 @@
+name: Deploy to Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment (qa, uat, prod)'
+        required: true
+        default: 'qa'
+        type: choice
+        options:
+          - qa
+          - uat
+          - prod
+      image_versions:
+        description: 'JSON object with image versions for each service'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout infra repo
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+
+      - name: Set Kubernetes namespace based on environment
+        id: set-namespace
+        run: |
+          case "${{ github.event.inputs.environment }}" in
+            qa)
+              NAMESPACE="qa"
+              ;;
+            uat)
+              NAMESPACE="uat"
+              ;;
+            prod)
+              NAMESPACE="blog"
+              ;;
+            *)
+              echo "Invalid environment: ${{ github.event.inputs.environment }}"
+              exit 1
+              ;;
+          esac
+          
+          echo "NAMESPACE=$NAMESPACE" >> $GITHUB_ENV
+          echo "namespace=$NAMESPACE" >> $GITHUB_OUTPUT
+
+      - name: Prepare service versions for deployment
+        run: |
+          # Create directory for storing versions
+          mkdir -p k8s-versions
+          
+          # Get list of all services
+          services=("user-service" "post-service" "frontend" "comment-service")
+          
+          # Parse the service versions JSON from input
+          IMAGE_VERSIONS='${{ github.event.inputs.image_versions }}'
+          
+          # Process all services
+          for service in "${services[@]}"; do
+            # Try to get version from input JSON
+            VERSION=$(echo $IMAGE_VERSIONS | jq -r --arg svc "$service" '.[$svc] // empty')
+            
+            # If not found in the input (service not changed or not built)
+            if [ -z "$VERSION" ]; then
+              # Try to get current version from K8s deployment or use latest from ECR
+              CURRENT_VERSION=$(kubectl get deployment -n ${{ env.NAMESPACE }} ${service} -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | awk -F: '{print $2}' || echo "")
+              
+              if [ -z "$CURRENT_VERSION" ]; then
+                # If not deployed yet, use latest from ECR with appropriate tag
+                case "${{ github.event.inputs.environment }}" in
+                  qa)
+                    TAG_SUFFIX="qa"
+                    ;;
+                  uat)
+                    TAG_SUFFIX="uat"
+                    ;;
+                  prod)
+                    TAG_SUFFIX="stable"
+                    ;;
+                esac
+                
+                CURRENT_VERSION=$(aws ecr describe-images \
+                  --repository-name blog-platform/$service \
+                  --query "imageDetails[?contains(imageTags, \`latest-${TAG_SUFFIX}\`)].[imageTags]" \
+                  --output text | grep -v "latest-${TAG_SUFFIX}" | sort -V | tail -n 1 || echo "1.0.0-${TAG_SUFFIX}")
+              fi
+              
+              echo "$CURRENT_VERSION" > k8s-versions/${service}-version
+              echo "$service will use current version: $CURRENT_VERSION"
+            else
+              # Use the version from input
+              echo "$VERSION" > k8s-versions/${service}-version
+              echo "$service will use version from build: $VERSION"
+            fi
+          done
+
+      - name: Process and deploy K8s manifests
+        run: |
+          # Set manifest path based on environment
+          MANIFEST_PATH="manifests/${{ github.event.inputs.environment }}"
+          
+          # Create processed manifest directory
+          mkdir -p processed-manifests
+          
+          # Check if manifest directory exists
+          if [ ! -d "$MANIFEST_PATH" ]; then
+            echo "Error: Manifest directory '$MANIFEST_PATH' not found!"
+            exit 1
+          fi
+          
+          # Process all manifest files and replace placeholders
+          for file in $MANIFEST_PATH/*.yaml; do
+            echo "Processing $file"
+            
+            # Start with the original file
+            cat $file > temp.yaml
+            
+            # Replace ECR_URL
+            sed -i "s|\$ECR_URL|${{ secrets.ECR_URL }}|g" temp.yaml
+            
+            # Replace service versions
+            services=("user-service" "post-service" "frontend" "comment-service")
+            for service in "${services[@]}"; do
+              # Convert service name to upper case with underscores for variable name
+              VAR_NAME=$(echo $service | tr '-' '_' | tr '[:lower:]' '[:upper:]')
+              VERSION=$(cat k8s-versions/${service}-version)
+              # Notice the escaped dollar sign \$ to properly reference variables in manifest files
+              sed -i "s|\\\${VAR_NAME}_VERSION|${VERSION}|g" temp.yaml
+            done
+            
+            # Print the content of processed file for debugging
+            echo "Processed content of $(basename $file):"
+            # cat temp.yaml
+            
+            # Move to processed directory
+            mv temp.yaml processed-manifests/$(basename $file)
+          done
+          
+          # List processed manifests
+          echo "Processed manifest files:"
+          ls -la processed-manifests/
+          
+          # Apply manifests to target namespace
+          kubectl apply -f processed-manifests/ -n ${{ env.NAMESPACE }}
+          
+          # Verify deployments
+          kubectl get deployments -n ${{ env.NAMESPACE }}
+
+      - name: Post-deployment verification
+        run: |
+          # Get list of deployments in the namespace
+          DEPLOYMENTS=$(kubectl get deployments -n ${{ env.NAMESPACE }} -o jsonpath='{.items[*].metadata.name}')
+          
+          echo "Checking deployment status for: $DEPLOYMENTS"
+          
+          # Loop through deployments and check if they're ready
+          for deployment in $DEPLOYMENTS; do
+            echo "Checking status of deployment: $deployment"
+            
+            # Wait for deployment to be ready (timeout after 5 minutes)
+            kubectl rollout status deployment/$deployment -n ${{ env.NAMESPACE }} --timeout=300s
+            
+            if [ $? -ne 0 ]; then
+              echo "Deployment $deployment failed to roll out within timeout"
+              echo "Getting logs from pods..."
+              
+              # Get pods for the deployment
+              PODS=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=$deployment -o jsonpath='{.items[*].metadata.name}')
+              
+              for pod in $PODS; do
+                echo "=== Logs for pod $pod ==="
+                kubectl logs $pod -n ${{ env.NAMESPACE }} --tail=100
+                
+                # Also show events for problematic pods
+                echo "=== Events for pod $pod ==="
+                kubectl describe pod $pod -n ${{ env.NAMESPACE }} | grep -A20 Events:
+              done
+              
+              exit 1
+            fi
+          done
+          
+          echo "All deployments are ready!"
+          
+          # Get service endpoints if available
+          if kubectl get services -n ${{ env.NAMESPACE }} &> /dev/null; then
+            echo "=== Service Endpoints ==="
+            kubectl get services -n ${{ env.NAMESPACE }}
+          fi

@@ -207,12 +207,8 @@ jobs:
               continue
             fi
             
-            # Ensure ECR repository exists
-            # aws ecr describe-repositories --repository-names blog-platform/$service || \
-            #   aws ecr create-repository --repository-name blog-platform/$service
-            
-            # Build and push Docker image for both amd64 and arm64
-            docker buildx build --platform linux/amd64,linux/arm64 \
+            # Build and push Docker image for arm64
+            docker buildx build --platform linux/arm64 \
               --push \
               -t ${{ secrets.ECR_URL }}/blog-platform/$service:${VERSION}-qa \
               -t ${{ secrets.ECR_URL }}/blog-platform/$service:latest-qa \
@@ -225,91 +221,28 @@ jobs:
           # Set output for use in later jobs
           echo "image_versions=$(echo $IMAGE_VERSIONS | jq -c .)" >> $GITHUB_OUTPUT
 
-  deploy:
-    needs: [versioning, docker-build-push]
+  trigger-deploy:
+    needs: [docker-build-push]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout infra repo
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Trigger Deploy Workflow
+        uses: actions/github-script@v6
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
-
-      - name: Prepare all service versions for deployment
-        run: |
-          # Create directory for storing versions
-          mkdir -p k8s-versions
-          
-          # Get list of all services
-          services=("user-service" "post-service" "frontend" "comment-service")
-          
-          # Parse the service versions JSON
-          CHANGED_SERVICE_VERSIONS='${{ needs.versioning.outputs.service_versions }}'
-          IMAGE_VERSIONS='${{ needs.docker-build-push.outputs.image_versions }}'
-          
-          # Process all services
-          for service in "${services[@]}"; do
-            # Try to get version from built images first
-            VERSION=$(echo $IMAGE_VERSIONS | jq -r --arg svc "$service" '.[$svc] // empty')
+          github-token: ${{ secrets.GH_ACCESS_TOKEN }}
+          script: |
+            // Prepare input data for the deploy workflow
+            const imageVersions = '${{ needs.docker-build-push.outputs.image_versions }}';
             
-            # If not found (service not changed or not built)
-            if [ -z "$VERSION" ]; then
-              # Try to get current version from K8s deployment or use latest from ECR
-              CURRENT_VERSION=$(kubectl get deployment -n qa ${service} -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | awk -F: '{print $2}' || echo "")
-              
-              if [ -z "$CURRENT_VERSION" ]; then
-                # If not deployed yet, use latest from ECR with qa tag
-                CURRENT_VERSION=$(aws ecr describe-images \
-                  --repository-name blog-platform/$service \
-                  --query 'imageDetails[?contains(imageTags, `latest-qa`)].[imageTags]' \
-                  --output text | grep -v "latest-qa" | sort -V | tail -n 1 || echo "1.0.0-qa")
-              fi
-              
-              echo "$CURRENT_VERSION" > k8s-versions/${service}-version
-              echo "$service will use current version: $CURRENT_VERSION"
-            else
-              echo "$VERSION" > k8s-versions/${service}-version
-              echo "$service will use new version: $VERSION"
-            fi
-          done
-
-      - name: Process and deploy K8s manifests
-        run: |
-          # Create processed manifest directory
-          mkdir -p processed-manifests
-          
-          # Process all manifest files and replace placeholders
-          for file in manifests/qa/*.yaml; do
-            echo "Processing $file"
+            // Trigger the deploy workflow for QA environment
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'deploy.yml',
+              ref: context.ref,
+              inputs: {
+                environment: 'qa',
+                image_versions: imageVersions
+              }
+            });
             
-            # Start with the original file
-            cat $file > temp.yaml
-            
-            # Replace ECR_URL
-            sed -i "s|\$ECR_URL|${{ secrets.ECR_URL }}|g" temp.yaml
-            
-            # Replace service versions
-            services=("user-service" "post-service" "frontend" "comment-service")
-            for service in "${services[@]}"; do
-              # Convert service name to upper case with underscores for variable name
-              VAR_NAME=$(echo $service | tr '-' '_' | tr '[:lower:]' '[:upper:]')
-              VERSION=$(cat k8s-versions/${service}-version)
-              sed -i "s|\${VAR_NAME}_VERSION|${VERSION}|g" temp.yaml
-            done
-            
-            # Move to processed directory
-            mv temp.yaml processed-manifests/$(basename $file)
-          done
-          
-          # Apply manifests to QA namespace
-          kubectl apply -f processed-manifests/ -n qa
-          
-          # Verify deployments
-          kubectl get deployments -n qa
+            console.log('Triggered deployment to QA environment');
