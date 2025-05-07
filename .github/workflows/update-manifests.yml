@@ -37,20 +37,23 @@ jobs:
         run: |
           ENV="${{ github.event.inputs.environment }}"
           IMAGE_VERSIONS=$(echo "${{ steps.parse.outputs.image_versions }}" | base64 --decode)
-          CHANGED_SERVICES=(${{ steps.parse.outputs.changed_services }})
-          
+          CHANGED_SERVICES=($(echo '${{ steps.parse.outputs.changed_services }}'))
+
           # Handle prod environment directory name
           if [ "$ENV" == "prod" ]; then
             ENV_DIR="prod"
           else
             ENV_DIR="$ENV"
           fi
-          
+
+          echo "Decoded image versions:"
+          echo "$IMAGE_VERSIONS" | jq .
+
           # Update each service's kustomization.yaml
           for service in "${CHANGED_SERVICES[@]}"; do
-            VERSION=$(echo $IMAGE_VERSIONS | jq -r --arg svc "$service" '.[$svc]')
+            VERSION=$(echo "$IMAGE_VERSIONS" | jq -r --arg svc "$service" '.[$svc]')
             KUSTOMIZATION_FILE="manifests/$ENV_DIR/$service/kustomization.yaml"
-            
+
             if [ -f "$KUSTOMIZATION_FILE" ]; then
               echo "Updating $KUSTOMIZATION_FILE with version $VERSION"
               # Use sed to update the newTag value
