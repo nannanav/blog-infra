@@ -1,16 +1,12 @@
-# Ingress for frontend
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: blog-ingress
   namespace: blog
   annotations:
-    kubernetes.io/ingress.class: "alb"
-    alb.ingress.kubernetes.io/scheme: "internet-facing"
-    alb.ingress.kubernetes.io/target-type: "ip"
-    # Add rewrite target annotations to strip path prefixes
-    alb.ingress.kubernetes.io/rewrite-target: "/$2"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
 spec:
+  ingressClassName: nginx
   rules:
   - http:
       paths:
@@ -21,23 +17,22 @@ spec:
             name: frontend
             port:
               number: 80
-      # Path pattern with regex to capture everything after the prefix
       - path: /user-service(/|$)(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: user-service
             port:
               number: 8081
       - path: /post-service(/|$)(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: post-service
             port:
               number: 8082
       - path: /comment-service(/|$)(.*)
-        pathType: Prefix
+        pathType: ImplementationSpecific
         backend:
           service:
             name: comment-service

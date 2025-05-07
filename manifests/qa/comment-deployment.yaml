@@ -1,27 +1,27 @@
-# Post Service Deployment
+# Comment Service Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: post-service
+  name: comment-service
   namespace: blog
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: post-service
+      app: comment-service
   template:
     metadata:
       labels:
-        app: post-service
+        app: comment-service
     spec:
       containers:
-      - name: post-service
-        image: ${ECR_REPO_URL}/post-service:latest # Replace with your ECR repository
+      - name: comment-service
+        image: $ECR_URL/blog-platform/comment-service:$COMMENT_SERVICE_VERSION
         ports:
-        - containerPort: 8082
+        - containerPort: 8083
         env:
         - name: PORT
-          value: "8082"
+          value: "8083"
         - name: DB_HOST
           valueFrom:
             configMapKeyRef:
@@ -52,12 +52,12 @@ spec:
         readinessProbe:
           httpGet:
             path: /health
-            port: 8082
+            port: 8083
           initialDelaySeconds: 10
           periodSeconds: 5
         livenessProbe:
           httpGet:
             path: /health
-            port: 8082
+            port: 8083
           initialDelaySeconds: 15
           periodSeconds: 10

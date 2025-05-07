@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: ${ECR_REPO_URL}/frontend:latest # Replace with your ECR repository
+        image: $ECR_URL/blog-platform/frontend:$FRONTEND_VERSION
         ports:
         - containerPort: 80
         resources:
