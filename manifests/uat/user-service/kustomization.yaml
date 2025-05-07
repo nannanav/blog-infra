@@ -1,0 +1,12 @@
+# manifests/blog/user-service/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base/user-service
+
+namespace: uat
+
+images:
+- name: ${ECR_REGISTRY}/blog-platform/user-service
+  newName: ${ECR_REGISTRY}/blog-platform/user-service
+  newTag: 1.0.0-rc  # This will be updated by ArgoCD Image Updater

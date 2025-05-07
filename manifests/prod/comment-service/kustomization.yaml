@@ -1,0 +1,12 @@
+# manifests/blog/comment-service/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base/comment-service
+
+namespace: blog
+
+images:
+- name: ${ECR_REGISTRY}/blog-platform/comment-service
+  newName: ${ECR_REGISTRY}/blog-platform/comment-service
+  newTag: 1.0.0  # This will be updated by ArgoCD Image Updater

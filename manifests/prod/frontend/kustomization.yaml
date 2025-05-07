@@ -1,0 +1,12 @@
+# manifests/blog/frontend/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ../../base/frontend
+
+namespace: blog
+
+images:
+- name: ${ECR_REGISTRY}/blog-platform/frontend
+  newName: ${ECR_REGISTRY}/blog-platform/frontend
+  newTag: 1.0.0  # This will be updated by ArgoCD Image Updater

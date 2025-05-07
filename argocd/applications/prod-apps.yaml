@@ -1,0 +1,41 @@
+# prod-apps.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: blog-platform-prod
+  namespace: argocd
+spec:
+  generators:
+  - list:
+      elements:
+      - name: comment-service
+        path: manifests/prod/comment-service
+      - name: post-service
+        path: manifests/prod/post-service
+      - name: frontend
+        path: manifests/prod/frontend
+      - name: user-service
+        path: manifests/prod/user-service
+  template:
+    metadata:
+      name: '{{name}}-prod'
+      annotations:
+        argocd-image-updater.argoproj.io/image-list: '{{name}}=${ECR_REGISTRY}/blog-platform/{{name}}'
+        argocd-image-updater.argoproj.io/{{name}}.update-strategy: newest-build
+        argocd-image-updater.argoproj.io/{{name}}.allow-tags: regexp:[0-9.]+$ # prod version pattern
+        argocd-image-updater.argoproj.io/write-back-method: git
+        argocd-image-updater.argoproj.io/git-branch: main
+        argocd-image-updater.argoproj.io/write-back-target: kustomization
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/your-org/blog-infra.git
+        targetRevision: main
+        path: '{{path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: blog
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true

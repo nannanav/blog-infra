@@ -1,0 +1,19 @@
+# manifests/base/user-service/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+spec:
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+      - name: user-service
+        image: ${ECR_REGISTRY}/blog-platform/user-service:latest
+        ports:
+        - containerPort: 8081
