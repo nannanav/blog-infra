@@ -230,14 +230,14 @@ jobs:
         with:
           github-token: ${{ secrets.GH_ACCESS_TOKEN }}
           script: |
-            // Get changed services from versioning job
-            const changedServices = '${{ needs.versioning.outputs.changed_services }}'.split(',').filter(s => s);
+            // Get changed services from docker-build-push job outputs
+            // Parse from the image_versions object
+            const imageVersionsObj = JSON.parse('${{ needs.docker-build-push.outputs.image_versions }}');
+            const changedServices = Object.keys(imageVersionsObj);
+            
             console.log('Changed services:', changedServices);
             
-            // Prepare input data for the deploy workflow - only include changed services
-            const imageVersionsObj = JSON.parse('${{ needs.docker-build-push.outputs.image_versions }}');
-            
-            // Add flag for changed services
+            // Prepare deploy info structure
             const deployInfoObj = {
               images: imageVersionsObj,
               changed_services: changedServices
