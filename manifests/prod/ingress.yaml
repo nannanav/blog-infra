@@ -5,6 +5,7 @@ metadata:
   namespace: blog
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.kubernetes.io/disable-resource-validating-webhook: "true"
 spec:
   ingressClassName: nginx
   rules:
