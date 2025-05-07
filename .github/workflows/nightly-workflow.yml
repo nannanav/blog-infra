@@ -8,8 +8,6 @@ on:
 jobs:
   versioning:
     runs-on: ubuntu-latest
-    outputs:
-      changed_services: ${{ steps.detect_changes.outputs.changed_services }}
     steps:
       - name: Checkout the infra repo
         uses: actions/checkout@v3
