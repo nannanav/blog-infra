@@ -77,18 +77,19 @@ jobs:
             # Get latest stable version from ECR
             LATEST_VERSION=$(aws ecr describe-images \
               --repository-name blog-platform/$service \
-              --query 'imageDetails[?contains(imageTags, `stable`)].[imageTags]' \
+              --query 'imageDetails[?imageTags && contains(imageTags, `stable`)].[imageTags]' \
               --output text | grep -v "stable" | sort -V | tail -n 1 || echo "1.0.0")
             
             # If no version found, default to 1.0.0
             if [ -z "$LATEST_VERSION" ]; then
+              echo "no version found. Defaulting to 1.0.0"
               LATEST_VERSION="1.0.0"
             fi
             
             # Check if there are changes since last QA image
             LATEST_QA_TAG=$(aws ecr describe-images \
               --repository-name blog-platform/$service \
-              --query 'imageDetails[?contains(imageTags, `latest-qa`)].[imageTags]' \
+              --query 'imageDetails[?imageTags && contains(imageTags, `latest-qa`)].[imageTags]' \
               --output text | grep -v "latest-qa" | sort -V | tail -n 1 || echo "")
               
             # If no changes for this service, mark it to be skipped
@@ -102,6 +103,7 @@ jobs:
             LAST_STABLE_TAG=$(git describe --tags --match "$service-v*" --abbrev=0 2>/dev/null || echo "")
             if [ -z "$LAST_STABLE_TAG" ]; then
               # No previous tag, default to patch bump
+              echo "No previous tag, default to patch bump"
               BUMP_TYPE="patch"
             else
               # Check commit messages for bump type keywords
@@ -199,7 +201,7 @@ jobs:
               # Get current latest-qa tag for this service
               CURRENT_QA_VERSION=$(aws ecr describe-images \
                 --repository-name blog-platform/$service \
-                --query 'imageDetails[?contains(imageTags, `latest-qa`)].[imageTags]' \
+                --query 'imageDetails[?imageTags && contains(imageTags, `latest-qa`)].[imageTags]' \
                 --output text | grep -v "latest-qa" | sort -V | tail -n 1 || echo "1.0.0-qa")
               
               # Store in the JSON
