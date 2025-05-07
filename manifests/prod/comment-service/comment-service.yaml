@@ -1,12 +1,29 @@
-# Comment Service Service
+# Active Service
 apiVersion: v1
 kind: Service
 metadata:
   name: comment-service
   namespace: blog
+  labels: green
 spec:
   selector:
     app: comment-service
+    version: green
+  ports:
+  - port: 8083
+    targetPort: 8083
+  type: ClusterIP
+---
+# Preview Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: comment-service-preview
+  namespace: blog
+spec:
+  selector:
+    app: comment-service
+    version: blue
   ports:
   - port: 8083
     targetPort: 8083

@@ -10,11 +10,19 @@ spec:
       elements:
       - name: comment-service
         path: manifests/prod/comment-service
+      - name: comment-service-preview
+        path: manifests/prod/comment-service
       - name: post-service
+        path: manifests/prod/post-service
+      - name: post-service-preview
         path: manifests/prod/post-service
       - name: frontend
         path: manifests/prod/frontend
+      - name: frontend-preview
+        path: manifests/prod/frontend
       - name: user-service
+        path: manifests/prod/user-service
+      - name: user-service-preview
         path: manifests/prod/user-service
       - name: ingress  # Add this new element
         path: manifests/prod  # Path to the directory containing ingress.yaml
