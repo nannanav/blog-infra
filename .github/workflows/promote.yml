@@ -23,32 +23,46 @@ on:
 jobs:
   promote:
     runs-on: ubuntu-latest
+    env:
+      # Set default values to avoid empty variable issues
+      TARGET_ENV: "not-set"
+      SOURCE_TAG_SUFFIX: "not-set"
+      TARGET_TAG_SUFFIX: "not-set"
+    
     steps:
-      - name: Determine target environment
-        id: target-env
+      # Step 1: Determine target environment & tag suffixes
+      - name: Set target environment variables
         run: |
-          # Determine target environment based on source
-          if [ "${{ github.event.inputs.environment }}" == "qa" ]; then
-            TARGET_ENV="uat"
-            SOURCE_TAG_SUFFIX="qa"
-            TARGET_TAG_SUFFIX="rc"
-          elif [ "${{ github.event.inputs.environment }}" == "uat" ]; then
-            TARGET_ENV="prod"
-            SOURCE_TAG_SUFFIX="rc"
-            TARGET_TAG_SUFFIX=""
+          SOURCE_ENV="${{ github.event.inputs.environment }}"
+          
+          if [ "$SOURCE_ENV" == "qa" ]; then
+            echo "TARGET_ENV=uat" >> $GITHUB_ENV
+            echo "SOURCE_TAG_SUFFIX=qa" >> $GITHUB_ENV
+            echo "TARGET_TAG_SUFFIX=rc" >> $GITHUB_ENV
+          elif [ "$SOURCE_ENV" == "uat" ]; then
+            echo "TARGET_ENV=prod" >> $GITHUB_ENV
+            echo "SOURCE_TAG_SUFFIX=rc" >> $GITHUB_ENV
+            echo "TARGET_TAG_SUFFIX=" >> $GITHUB_ENV
           else
-            echo "Invalid source environment"
+            echo "Error: Invalid source environment: $SOURCE_ENV"
             exit 1
           fi
+      
+      # Step 2: Verify variables are set correctly
+      - name: Verify environment variables
+        run: |
+          echo "Source environment: ${{ github.event.inputs.environment }}"
+          echo "Target environment: ${{ env.TARGET_ENV }}"
+          echo "Source tag suffix: ${{ env.SOURCE_TAG_SUFFIX }}"
+          echo "Target tag suffix: ${{ env.TARGET_TAG_SUFFIX }}"
           
-          echo "TARGET_ENV=$TARGET_ENV" >> $GITHUB_ENV
-          echo "SOURCE_TAG_SUFFIX=$SOURCE_TAG_SUFFIX" >> $GITHUB_ENV
-          echo "TARGET_TAG_SUFFIX=$TARGET_TAG_SUFFIX" >> $GITHUB_ENV
-          
-          echo "target_env=$TARGET_ENV" >> $GITHUB_OUTPUT
-          echo "source_tag_suffix=$SOURCE_TAG_SUFFIX" >> $GITHUB_OUTPUT
-          echo "target_tag_suffix=$TARGET_TAG_SUFFIX" >> $GITHUB_OUTPUT
+          # Double-check that variables are set
+          if [ "${{ env.TARGET_ENV }}" == "not-set" ]; then
+            echo "Error: TARGET_ENV is not set correctly"
+            exit 1
+          fi
 
+      # Step 3: Configure AWS
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -56,21 +70,24 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
+      # Step 4: Login to ECR
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
+      # Step 5: Promote image (tag & push)
       - name: Promote service image
         id: promote-image
         run: |
+          # Service info
           SERVICE="${{ github.event.inputs.service }}"
           SOURCE_ENV="${{ github.event.inputs.environment }}"
-          TARGET_ENV="${{ steps.target-env.outputs.target_env }}"
-          SOURCE_TAG_SUFFIX="${{ steps.target-env.outputs.source_tag_suffix }}"
-          TARGET_TAG_SUFFIX="${{ steps.target-env.outputs.target_tag_suffix }}"
+          TARGET_ENV="${{ env.TARGET_ENV }}"
+          SOURCE_TAG_SUFFIX="${{ env.SOURCE_TAG_SUFFIX }}"
+          TARGET_TAG_SUFFIX="${{ env.TARGET_TAG_SUFFIX }}"
           
           echo "Promoting $SERVICE from $SOURCE_ENV to $TARGET_ENV"
           
-          # Find the latest versioned image for the service in source environment
+          # Find the latest versioned image with the right tag suffix
           SOURCE_IMAGE=$(aws ecr describe-images \
             --repository-name blog-platform/$SERVICE \
             --query "imageDetails[?imageTags && contains(imageTags, \`latest-${SOURCE_TAG_SUFFIX}\`)].[imageTags, imageDigest]" \
@@ -81,12 +98,11 @@ jobs:
             exit 1
           fi
           
-          # Get the image version without the suffix
+          # Get core version without environment suffix
           VERSION=$(echo $SOURCE_IMAGE | sed "s/-${SOURCE_TAG_SUFFIX}//")
+          echo "Found source image: $SOURCE_IMAGE (core version: $VERSION)"
           
-          echo "Found source image: $SOURCE_IMAGE (version: $VERSION)"
-          
-          # Get the image digest
+          # Get the image digest for reliable referencing
           IMAGE_DIGEST=$(aws ecr describe-images \
             --repository-name blog-platform/$SERVICE \
             --query "imageDetails[?imageTags && contains(imageTags, \`${SOURCE_IMAGE}\`)].imageDigest" \
@@ -97,22 +113,25 @@ jobs:
             exit 1
           fi
           
-          # Create target tags based on environment
+          # Create target tags based on target environment
           ECR_URL="${{ secrets.ECR_URL }}"
           SOURCE_URI="${ECR_URL}/blog-platform/${SERVICE}@${IMAGE_DIGEST}"
           
+          # Set proper tags based on target environment
           if [ "$TARGET_ENV" == "prod" ]; then
-            # For production, tag with version, latest, and stable
+            # Production tags
             TARGET_TAGS=("$VERSION" "latest" "stable")
+            DEPLOY_VERSION="$VERSION"
           else
-            # For UAT, tag with version-rc and latest-rc
+            # UAT tags
             TARGET_TAGS=("${VERSION}-${TARGET_TAG_SUFFIX}" "latest-${TARGET_TAG_SUFFIX}")
+            DEPLOY_VERSION="${VERSION}-${TARGET_TAG_SUFFIX}"
           fi
           
           # Pull the source image
           docker pull --platform=linux/arm64 $SOURCE_URI
           
-          # Tag and push the image with all target tags
+          # Tag and push with all appropriate tags
           for TARGET_TAG in "${TARGET_TAGS[@]}"; do
             TARGET_URI="${ECR_URL}/blog-platform/${SERVICE}:${TARGET_TAG}"
             echo "Tagging and pushing: $TARGET_URI"
@@ -121,36 +140,42 @@ jobs:
             docker push $TARGET_URI
           done
           
-          # Output the version for deployment
-          if [ "$TARGET_ENV" == "prod" ]; then
-            DEPLOY_VERSION="$VERSION"
-          else
-            DEPLOY_VERSION="${VERSION}-${TARGET_TAG_SUFFIX}"
-          fi
-          
-          echo "deploy_version=$DEPLOY_VERSION" >> $GITHUB_OUTPUT
+          # Set output for next step
+          echo "DEPLOY_VERSION=$DEPLOY_VERSION" >> $GITHUB_ENV
           echo "Successfully promoted $SERVICE from $SOURCE_ENV to $TARGET_ENV with version $DEPLOY_VERSION"
 
-      - name: Trigger deployment
+      # Step 6: Verify variables for deployment
+      - name: Prepare for deployment
+        run: |
+          echo "Service: ${{ github.event.inputs.service }}"
+          echo "Target environment: ${{ env.TARGET_ENV }}"
+          echo "Deploy version: ${{ env.DEPLOY_VERSION }}"
+          
+          if [ -z "${{ env.DEPLOY_VERSION }}" ]; then
+            echo "Error: Deploy version is not set"
+            exit 1
+          fi
+
+      # Step 7: Trigger deployment workflow
+      - name: Trigger deployment workflow
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GH_ACCESS_TOKEN }}
           script: |
-            // Get target environment from outputs
-            const targetEnv = '${{ steps.target-env.outputs.target_env }}';
-            const deployVersion = '${{ steps.promote-image.outputs.deploy_version }}';
+            // Access environment variables directly
+            const targetEnv = process.env.TARGET_ENV;
+            const deployVersion = process.env.DEPLOY_VERSION;
+            const service = '${{ github.event.inputs.service }}';
             
-            console.log(`Preparing deployment to ${targetEnv} with version ${deployVersion}`);
+            console.log(`Deploying ${service} to ${targetEnv} with version ${deployVersion}`);
             
-            // Prepare deploy info with the promoted service
+            // Create the deploy info object with properly escaped values
             const deployInfo = {
-              images: {
-                '${{ github.event.inputs.service }}': deployVersion
-              },
-              changed_services: ['${{ github.event.inputs.service }}']
+              images: { [service]: deployVersion },
+              changed_services: [service]
             };
             
-            // Trigger deployment to target environment
+            // Trigger the deployment workflow
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -162,4 +187,4 @@ jobs:
               }
             });
             
-            console.log(`Triggered deployment to ${targetEnv} environment for service ${{ github.event.inputs.service }}`);
+            console.log(`Successfully triggered deployment to ${targetEnv}`);
