@@ -1,0 +1,13 @@
+# Comment Service Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: comment-service
+  namespace: uat
+spec:
+  selector:
+    app: comment-service
+  ports:
+  - port: 8083
+    targetPort: 8083
+  type: ClusterIP

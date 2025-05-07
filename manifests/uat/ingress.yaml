@@ -1,0 +1,41 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: blog-ingress
+  namespace: uat
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: uat.nannan.click
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 80
+      - path: /user-service(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: user-service
+            port:
+              number: 8081
+      - path: /post-service(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: post-service
+            port:
+              number: 8082
+      - path: /comment-service(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: comment-service
+            port:
+              number: 8083
