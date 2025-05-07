@@ -12,10 +12,10 @@ jobs:
       changed_services: ${{ steps.detect_changes.outputs.changed_services }}
     steps:
       - name: Checkout the infra repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Checkout the source repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: nannanav/blog-platform
           token: ${{ secrets.GH_ACCESS_TOKEN }}
@@ -137,27 +137,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout infra repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Checkout source repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: nannanav/blog-platform
           token: ${{ secrets.GH_ACCESS_TOKEN }}
           path: blog-platform
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v3
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Log in to Amazon ECR
-        uses: aws-actions/amazon-ecr-login@v1
+        uses: aws-actions/amazon-ecr-login@v2
 
       - name: Create version tracking directory
         run: mkdir -p k8s-versions
@@ -208,7 +208,7 @@ jobs:
           done
 
       - name: Upload version files
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: k8s-versions
           path: k8s-versions/
@@ -218,16 +218,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout infra repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Download version files
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
         with:
           name: k8s-versions
           path: k8s-versions
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
