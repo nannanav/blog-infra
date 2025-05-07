@@ -16,6 +16,8 @@ spec:
         path: manifests/prod/frontend
       - name: user-service
         path: manifests/prod/user-service
+      - name: ingress  # Add this new element
+        path: manifests/prod  # Path to the directory containing ingress.yaml
   template:
     metadata:
       name: '{{name}}-prod'

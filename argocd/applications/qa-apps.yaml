@@ -16,6 +16,8 @@ spec:
         path: manifests/qa/frontend
       - name: user-service
         path: manifests/qa/user-service
+      - name: ingress  # Add this new element
+        path: manifests/qa  # Path to the directory containing ingress.yaml
   template:
     metadata:
       name: '{{name}}-qa'

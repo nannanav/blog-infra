@@ -16,6 +16,8 @@ spec:
         path: manifests/uat/frontend
       - name: user-service
         path: manifests/uat/user-service
+      - name: ingress  # Add this new element
+        path: manifests/uat  # Path to the directory containing ingress.yaml
   template:
     metadata:
       name: '{{name}}-uat'
