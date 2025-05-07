@@ -1,0 +1,13 @@
+# Post Service Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: post-service
+  namespace: blog
+spec:
+  selector:
+    app: post-service
+  ports:
+  - port: 8082
+    targetPort: 8082
+  type: ClusterIP
