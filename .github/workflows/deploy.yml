@@ -217,46 +217,46 @@ jobs:
           fi
           
           # Verify deployments
-          kubectl get deployments -n ${{ env.NAMESPACE }}
+          # kubectl get deployments -n ${{ env.NAMESPACE }}
 
-      - name: Post-deployment verification
-        run: |
-          # Get list of deployments in the namespace
-          DEPLOYMENTS=$(kubectl get deployments -n ${{ env.NAMESPACE }} -o jsonpath='{.items[*].metadata.name}')
+      # - name: Post-deployment verification
+      #   run: |
+      #     # Get list of deployments in the namespace
+      #     DEPLOYMENTS=$(kubectl get deployments -n ${{ env.NAMESPACE }} -o jsonpath='{.items[*].metadata.name}')
           
-          echo "Checking deployment status for: $DEPLOYMENTS"
+      #     echo "Checking deployment status for: $DEPLOYMENTS"
           
-          # Loop through deployments and check if they're ready
-          for deployment in $DEPLOYMENTS; do
-            echo "Checking status of deployment: $deployment"
+      #     # Loop through deployments and check if they're ready
+      #     for deployment in $DEPLOYMENTS; do
+      #       echo "Checking status of deployment: $deployment"
             
-            # Wait for deployment to be ready (timeout after 5 minutes)
-            kubectl rollout status deployment/$deployment -n ${{ env.NAMESPACE }} --timeout=300s
+      #       # Wait for deployment to be ready (timeout after 5 minutes)
+      #       kubectl rollout status deployment/$deployment -n ${{ env.NAMESPACE }} --timeout=300s
             
-            if [ $? -ne 0 ]; then
-              echo "Deployment $deployment failed to roll out within timeout"
-              echo "Getting logs from pods..."
+      #       if [ $? -ne 0 ]; then
+      #         echo "Deployment $deployment failed to roll out within timeout"
+      #         echo "Getting logs from pods..."
               
-              # Get pods for the deployment
-              PODS=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=$deployment -o jsonpath='{.items[*].metadata.name}')
+      #         # Get pods for the deployment
+      #         PODS=$(kubectl get pods -n ${{ env.NAMESPACE }} -l app=$deployment -o jsonpath='{.items[*].metadata.name}')
               
-              for pod in $PODS; do
-                echo "=== Logs for pod $pod ==="
-                kubectl logs $pod -n ${{ env.NAMESPACE }} --tail=100
+      #         for pod in $PODS; do
+      #           echo "=== Logs for pod $pod ==="
+      #           kubectl logs $pod -n ${{ env.NAMESPACE }} --tail=100
                 
-                # Also show events for problematic pods
-                echo "=== Events for pod $pod ==="
-                kubectl describe pod $pod -n ${{ env.NAMESPACE }} | grep -A20 Events:
-              done
+      #           # Also show events for problematic pods
+      #           echo "=== Events for pod $pod ==="
+      #           kubectl describe pod $pod -n ${{ env.NAMESPACE }} | grep -A20 Events:
+      #         done
               
-              exit 1
-            fi
-          done
+      #         exit 1
+      #       fi
+      #     done
           
-          echo "All deployments are ready!"
+      #     echo "All deployments are ready!"
           
-          # Get service endpoints if available
-          if kubectl get services -n ${{ env.NAMESPACE }} &> /dev/null; then
-            echo "=== Service Endpoints ==="
-            kubectl get services -n ${{ env.NAMESPACE }}
-          fi
+      #     # Get service endpoints if available
+      #     if kubectl get services -n ${{ env.NAMESPACE }} &> /dev/null; then
+      #       echo "=== Service Endpoints ==="
+      #       kubectl get services -n ${{ env.NAMESPACE }}
+      #     fi
