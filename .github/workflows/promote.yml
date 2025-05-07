@@ -11,7 +11,7 @@ on:
           - qa
           - uat
       service:
-        description: 'Service to promote'
+        description: 'Service to promote (select "all" to promote all services)'
         required: true
         type: choice
         options:
@@ -19,6 +19,7 @@ on:
           - post-service
           - user-service
           - comment-service
+          - all
 
 jobs:
   promote:
@@ -74,85 +75,127 @@ jobs:
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Step 5: Promote image (tag & push)
-      - name: Promote service image
-        id: promote-image
+      # Step 5: Promote image(s) - supports both single service and all services
+      - name: Promote service images
+        id: promote-images
         run: |
           # Service info
-          SERVICE="${{ github.event.inputs.service }}"
+          SERVICE_CHOICE="${{ github.event.inputs.service }}"
           SOURCE_ENV="${{ github.event.inputs.environment }}"
           TARGET_ENV="${{ env.TARGET_ENV }}"
           SOURCE_TAG_SUFFIX="${{ env.SOURCE_TAG_SUFFIX }}"
           TARGET_TAG_SUFFIX="${{ env.TARGET_TAG_SUFFIX }}"
           
-          echo "Promoting $SERVICE from $SOURCE_ENV to $TARGET_ENV"
-          
-          # Find the latest versioned image with the right tag suffix
-          SOURCE_IMAGE=$(aws ecr describe-images \
-            --repository-name blog-platform/$SERVICE \
-            --query "imageDetails[?imageTags && contains(imageTags, \`latest-${SOURCE_TAG_SUFFIX}\`)].[imageTags, imageDigest]" \
-            --output json | jq -r '.[0][0][] | select(contains("latest-'${SOURCE_TAG_SUFFIX}'") | not) | select(contains("-'${SOURCE_TAG_SUFFIX}'"))' | sort -V | tail -n 1)
-          
-          if [ -z "$SOURCE_IMAGE" ]; then
-            echo "Error: Could not find source image for $SERVICE in $SOURCE_ENV"
-            exit 1
-          fi
-          
-          # Get core version without environment suffix
-          VERSION=$(echo $SOURCE_IMAGE | sed "s/-${SOURCE_TAG_SUFFIX}//")
-          echo "Found source image: $SOURCE_IMAGE (core version: $VERSION)"
-          
-          # Get the image digest for reliable referencing
-          IMAGE_DIGEST=$(aws ecr describe-images \
-            --repository-name blog-platform/$SERVICE \
-            --query "imageDetails[?imageTags && contains(imageTags, \`${SOURCE_IMAGE}\`)].imageDigest" \
-            --output text)
-          
-          if [ -z "$IMAGE_DIGEST" ]; then
-            echo "Error: Could not find image digest"
-            exit 1
-          fi
-          
-          # Create target tags based on target environment
-          ECR_URL="${{ secrets.ECR_URL }}"
-          SOURCE_URI="${ECR_URL}/blog-platform/${SERVICE}@${IMAGE_DIGEST}"
-          
-          # Set proper tags based on target environment
-          if [ "$TARGET_ENV" == "prod" ]; then
-            # Production tags
-            TARGET_TAGS=("$VERSION" "latest" "stable")
-            DEPLOY_VERSION="$VERSION"
+          # Determine which services to promote
+          if [ "$SERVICE_CHOICE" == "all" ]; then
+            SERVICES=("frontend" "post-service" "user-service" "comment-service")
+            echo "Promoting ALL services from $SOURCE_ENV to $TARGET_ENV"
           else
-            # UAT tags
-            TARGET_TAGS=("${VERSION}-${TARGET_TAG_SUFFIX}" "latest-${TARGET_TAG_SUFFIX}")
-            DEPLOY_VERSION="${VERSION}-${TARGET_TAG_SUFFIX}"
+            SERVICES=("$SERVICE_CHOICE")
+            echo "Promoting service $SERVICE_CHOICE from $SOURCE_ENV to $TARGET_ENV"
           fi
           
-          # Pull the source image
-          docker pull --platform=linux/arm64 $SOURCE_URI
+          # Initialize empty JSON for promoted versions
+          PROMOTED_VERSIONS="{}"
+          PROMOTED_SERVICES=()
           
-          # Tag and push with all appropriate tags
-          for TARGET_TAG in "${TARGET_TAGS[@]}"; do
-            TARGET_URI="${ECR_URL}/blog-platform/${SERVICE}:${TARGET_TAG}"
-            echo "Tagging and pushing: $TARGET_URI"
+          # Process each service
+          for SERVICE in "${SERVICES[@]}"; do
+            echo "-------------------------------------------"
+            echo "Processing service: $SERVICE"
             
-            docker tag $SOURCE_URI $TARGET_URI
-            docker push $TARGET_URI
+            # Find the latest versioned image with the right tag suffix
+            SOURCE_IMAGE=$(aws ecr describe-images \
+              --repository-name blog-platform/$SERVICE \
+              --query "imageDetails[?imageTags && contains(imageTags, \`latest-${SOURCE_TAG_SUFFIX}\`)].[imageTags, imageDigest]" \
+              --output json | jq -r '.[0][0][] | select(contains("latest-'${SOURCE_TAG_SUFFIX}'") | not) | select(contains("-'${SOURCE_TAG_SUFFIX}'"))' | sort -V | tail -n 1)
+            
+            if [ -z "$SOURCE_IMAGE" ]; then
+              echo "Warning: Could not find source image for $SERVICE in $SOURCE_ENV, skipping"
+              continue
+            fi
+            
+            # Get core version without environment suffix
+            VERSION=$(echo $SOURCE_IMAGE | sed "s/-${SOURCE_TAG_SUFFIX}//")
+            echo "Found source image: $SOURCE_IMAGE (core version: $VERSION)"
+            
+            # Get the image digest for reliable referencing
+            IMAGE_DIGEST=$(aws ecr describe-images \
+              --repository-name blog-platform/$SERVICE \
+              --query "imageDetails[?imageTags && contains(imageTags, \`${SOURCE_IMAGE}\`)].imageDigest" \
+              --output text)
+            
+            if [ -z "$IMAGE_DIGEST" ]; then
+              echo "Warning: Could not find image digest for $SERVICE, skipping"
+              continue
+            fi
+            
+            # Create target tags based on target environment
+            ECR_URL="${{ secrets.ECR_URL }}"
+            SOURCE_URI="${ECR_URL}/blog-platform/${SERVICE}@${IMAGE_DIGEST}"
+            
+            # Set proper tags based on target environment
+            if [ "$TARGET_ENV" == "prod" ]; then
+              # Production tags
+              TARGET_TAGS=("$VERSION" "latest" "stable")
+              DEPLOY_VERSION="$VERSION"
+            else
+              # UAT tags
+              TARGET_TAGS=("${VERSION}-${TARGET_TAG_SUFFIX}" "latest-${TARGET_TAG_SUFFIX}")
+              DEPLOY_VERSION="${VERSION}-${TARGET_TAG_SUFFIX}"
+            fi
+            
+            # Pull the source image
+            docker pull --platform=linux/arm64 $SOURCE_URI
+            
+            # Tag and push with all appropriate tags
+            for TARGET_TAG in "${TARGET_TAGS[@]}"; do
+              TARGET_URI="${ECR_URL}/blog-platform/${SERVICE}:${TARGET_TAG}"
+              echo "Tagging and pushing: $TARGET_URI"
+              
+              docker tag $SOURCE_URI $TARGET_URI
+              docker push $TARGET_URI
+            done
+            
+            # Add to promoted services
+            PROMOTED_SERVICES+=("$SERVICE")
+            
+            # Add to JSON of promoted versions
+            PROMOTED_VERSIONS=$(echo $PROMOTED_VERSIONS | jq --arg svc "$SERVICE" --arg ver "$DEPLOY_VERSION" '. + {($svc): $ver}')
+            
+            echo "Successfully promoted $SERVICE from $SOURCE_ENV to $TARGET_ENV with version $DEPLOY_VERSION"
+            echo "-------------------------------------------"
           done
           
-          # Set output for next step
-          echo "DEPLOY_VERSION=$DEPLOY_VERSION" >> $GITHUB_ENV
-          echo "Successfully promoted $SERVICE from $SOURCE_ENV to $TARGET_ENV with version $DEPLOY_VERSION"
+          # Convert promoted services array to comma-separated string
+          SERVICES_CSV=$(IFS=,; echo "${PROMOTED_SERVICES[*]}")
+          
+          # Set outputs for next steps
+          echo "PROMOTED_VERSIONS=$PROMOTED_VERSIONS" >> $GITHUB_ENV
+          echo "PROMOTED_SERVICES=$SERVICES_CSV" >> $GITHUB_ENV
+          
+          # Summary
+          echo "Summary of promotion:"
+          echo "From: $SOURCE_ENV to $TARGET_ENV"
+          echo "Services promoted: $SERVICES_CSV"
+          echo "Versions: $PROMOTED_VERSIONS"
+          
+          # Check if any services were successfully promoted
+          if [ ${#PROMOTED_SERVICES[@]} -eq 0 ]; then
+            echo "Error: No services were successfully promoted"
+            exit 1
+          fi
 
       # Step 6: Verify variables for deployment
       - name: Prepare for deployment
         run: |
-          echo "Service: ${{ github.event.inputs.service }}"
+          echo "Source environment: ${{ github.event.inputs.environment }}"
           echo "Target environment: ${{ env.TARGET_ENV }}"
-          echo "Deploy version: ${{ env.DEPLOY_VERSION }}"
+          echo "Promoted services: ${{ env.PROMOTED_SERVICES }}"
+          echo "Promoted versions: ${{ env.PROMOTED_VERSIONS }}"
           
-          if [ -z "${{ env.DEPLOY_VERSION }}" ]; then
-            echo "Error: Deploy version is not set"
+          if [ -z "${{ env.PROMOTED_SERVICES }}" ]; then
+            echo "Error: No services were promoted"
             exit 1
           fi
 
@@ -164,15 +207,15 @@ jobs:
           script: |
             // Access environment variables directly
             const targetEnv = process.env.TARGET_ENV;
-            const deployVersion = process.env.DEPLOY_VERSION;
-            const service = '${{ github.event.inputs.service }}';
+            const promotedVersions = JSON.parse(process.env.PROMOTED_VERSIONS);
+            const promotedServices = process.env.PROMOTED_SERVICES.split(',');
             
-            console.log(`Deploying ${service} to ${targetEnv} with version ${deployVersion}`);
+            console.log(`Deploying to ${targetEnv}: ${promotedServices.join(', ')}`);
             
-            // Create the deploy info object with properly escaped values
+            // Create the deploy info object
             const deployInfo = {
-              images: { [service]: deployVersion },
-              changed_services: [service]
+              images: promotedVersions,
+              changed_services: promotedServices
             };
             
             // Trigger the deployment workflow
@@ -187,4 +230,4 @@ jobs:
               }
             });
             
-            console.log(`Successfully triggered deployment to ${targetEnv}`);
+            console.log(`Successfully triggered deployment to ${targetEnv} for ${promotedServices.length} services`);
