@@ -27,7 +27,7 @@ jobs:
         id: parse
         run: |
           DEPLOY_INFO='${{ github.event.inputs.deploy_info }}'
-          IMAGE_VERSIONS=$(echo "$DEPLOY_INFO" | jq -c '.images' | base64)
+          IMAGE_VERSIONS=$(echo "$DEPLOY_INFO" | jq -c '.images')
           CHANGED_SERVICES=$(echo "$DEPLOY_INFO" | jq -r '.changed_services | join(" ")')
 
           echo "image_versions=$IMAGE_VERSIONS" >> $GITHUB_OUTPUT
@@ -36,7 +36,7 @@ jobs:
       - name: Update kustomization files
         run: |
           ENV="${{ github.event.inputs.environment }}"
-          IMAGE_VERSIONS=$(echo "${{ steps.parse.outputs.image_versions }}" | base64 --decode)
+          IMAGE_VERSIONS='${{ steps.parse.outputs.image_versions }}'
           CHANGED_SERVICES=($(echo '${{ steps.parse.outputs.changed_services }}'))
 
           # Handle prod environment directory name
