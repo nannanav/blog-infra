@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       changed_services: ${{ steps.detect_changes.outputs.changed_services }}
+      service_versions: ${{ steps.current_versions.outputs.service_versions }}
     steps:
       - name: Checkout the infra repo
         uses: actions/checkout@v4
@@ -68,7 +69,9 @@ jobs:
           cd blog-platform
           
           services=("user-service" "post-service" "frontend" "comment-service")
-          mkdir -p .changeset
+          
+          # Create a JSON object to store all service versions
+          VERSION_JSON="{}"
           
           for service in "${services[@]}"; do
             # Get latest stable version from ECR
@@ -88,10 +91,10 @@ jobs:
               --query 'imageDetails[?contains(imageTags, `latest-qa`)].[imageTags]' \
               --output text | grep -v "latest-qa" | sort -V | tail -n 1 || echo "")
               
-            # If no changes for this service, skip version bump
-            if [[ -z "${{ needs.versioning.outputs.changed_services }}" ]] || ! echo "${{ needs.versioning.outputs.changed_services }}" | grep -q "$service"; then
+            # If no changes for this service, mark it to be skipped
+            if [[ -z "${{ steps.detect_changes.outputs.changed_services }}" ]] || ! echo "${{ steps.detect_changes.outputs.changed_services }}" | grep -q "$service"; then
               echo "No changes detected for $service, skipping version bump"
-              echo "skip" > .changeset/${service}-version
+              VERSION_JSON=$(echo $VERSION_JSON | jq --arg svc "$service" --arg val "skip" '. + {($svc): $val}')
               continue
             fi
             
@@ -128,13 +131,18 @@ jobs:
               echo "$service: Bumping PATCH version from $LATEST_VERSION to $NEW_VERSION"
             fi
             
-            # Save version to file for later steps
-            echo $NEW_VERSION > .changeset/${service}-version
+            # Add version to JSON object
+            VERSION_JSON=$(echo $VERSION_JSON | jq --arg svc "$service" --arg val "$NEW_VERSION" '. + {($svc): $val}')
           done
+          
+          # Set output for use in later jobs
+          echo "service_versions=$(echo $VERSION_JSON | jq -c .)" >> $GITHUB_OUTPUT
 
   docker-build-push:
     needs: versioning
     runs-on: ubuntu-latest
+    outputs:
+      image_versions: ${{ steps.store_versions.outputs.image_versions }}
     steps:
       - name: Checkout infra repo
         uses: actions/checkout@v4
@@ -159,24 +167,33 @@ jobs:
       - name: Log in to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Create version tracking directory
-        run: mkdir -p k8s-versions
-
       - name: Build and Push Docker images for updated services
+        id: store_versions
         run: |
           # Get list of changed services
           IFS=',' read -r -a CHANGED_SERVICES <<< "${{ needs.versioning.outputs.changed_services }}"
           
           if [ ${#CHANGED_SERVICES[@]} -eq 0 ]; then
             echo "No services have changes. Skipping build and push."
+            # Create empty JSON for output
+            echo "image_versions={}" >> $GITHUB_OUTPUT
             exit 0
           fi
+          
+          # Parse the service versions JSON
+          SERVICE_VERSIONS='${{ needs.versioning.outputs.service_versions }}'
+          
+          # Create a JSON object to store all image versions
+          IMAGE_VERSIONS="{}"
           
           for service in "${CHANGED_SERVICES[@]}"; do
             echo "Building and pushing $service"
             
-            # Read the new version number - skip if marked to skip
-            if [[ -f blog-platform/.changeset/${service}-version ]] && [[ $(cat blog-platform/.changeset/${service}-version) == "skip" ]]; then
+            # Extract version for this service from the JSON
+            VERSION=$(echo $SERVICE_VERSIONS | jq -r --arg svc "$service" '.[$svc]')
+            
+            # Skip if marked to skip
+            if [[ "$VERSION" == "skip" ]]; then
               echo "Skipping $service as it has no changes since the last QA image"
               
               # Get current latest-qa tag for this service
@@ -185,16 +202,14 @@ jobs:
                 --query 'imageDetails[?contains(imageTags, `latest-qa`)].[imageTags]' \
                 --output text | grep -v "latest-qa" | sort -V | tail -n 1 || echo "1.0.0-qa")
               
-              echo "$CURRENT_QA_VERSION" > k8s-versions/${service}-version
+              # Store in the JSON
+              IMAGE_VERSIONS=$(echo $IMAGE_VERSIONS | jq --arg svc "$service" --arg val "$CURRENT_QA_VERSION" '. + {($svc): $val}')
               continue
             fi
             
-            # Read the version number
-            VERSION=$(cat blog-platform/.changeset/${service}-version)
-            
             # Ensure ECR repository exists
-            aws ecr describe-repositories --repository-names blog-platform/$service || \
-              aws ecr create-repository --repository-name blog-platform/$service
+            # aws ecr describe-repositories --repository-names blog-platform/$service || \
+            #   aws ecr create-repository --repository-name blog-platform/$service
             
             # Build and push Docker image for both amd64 and arm64
             docker buildx build --platform linux/amd64,linux/arm64 \
@@ -203,15 +218,12 @@ jobs:
               -t ${{ secrets.ECR_URL }}/blog-platform/$service:latest-qa \
               -f blog-platform/$service/Dockerfile blog-platform/$service
             
-            # Store version for deployment step
-            echo "${VERSION}-qa" > k8s-versions/${service}-version
+            # Store version in JSON
+            IMAGE_VERSIONS=$(echo $IMAGE_VERSIONS | jq --arg svc "$service" --arg val "${VERSION}-qa" '. + {($svc): $val}')
           done
-
-      - name: Upload version files
-        uses: actions/upload-artifact@v4
-        with:
-          name: k8s-versions
-          path: k8s-versions/
+          
+          # Set output for use in later jobs
+          echo "image_versions=$(echo $IMAGE_VERSIONS | jq -c .)" >> $GITHUB_OUTPUT
 
   deploy:
     needs: [versioning, docker-build-push]
@@ -219,12 +231,6 @@ jobs:
     steps:
       - name: Checkout infra repo
         uses: actions/checkout@v4
-
-      - name: Download version files
-        uses: actions/download-artifact@v4
-        with:
-          name: k8s-versions
-          path: k8s-versions
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -236,19 +242,25 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
 
-      - name: Set versions for services without changes
+      - name: Prepare all service versions for deployment
         run: |
+          # Create directory for storing versions
+          mkdir -p k8s-versions
+          
           # Get list of all services
           services=("user-service" "post-service" "frontend" "comment-service")
           
-          # Get list of changed services
-          IFS=',' read -r -a CHANGED_SERVICES <<< "${{ needs.versioning.outputs.changed_services }}"
+          # Parse the service versions JSON
+          CHANGED_SERVICE_VERSIONS='${{ needs.versioning.outputs.service_versions }}'
+          IMAGE_VERSIONS='${{ needs.docker-build-push.outputs.image_versions }}'
           
-          # For services without changes, get current deployed version in QA
+          # Process all services
           for service in "${services[@]}"; do
-            if [[ ! " ${CHANGED_SERVICES[@]} " =~ " ${service} " ]]; then
-              echo "Getting current QA version for $service"
-              
+            # Try to get version from built images first
+            VERSION=$(echo $IMAGE_VERSIONS | jq -r --arg svc "$service" '.[$svc] // empty')
+            
+            # If not found (service not changed or not built)
+            if [ -z "$VERSION" ]; then
               # Try to get current version from K8s deployment or use latest from ECR
               CURRENT_VERSION=$(kubectl get deployment -n qa ${service} -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | awk -F: '{print $2}' || echo "")
               
@@ -261,9 +273,10 @@ jobs:
               fi
               
               echo "$CURRENT_VERSION" > k8s-versions/${service}-version
-              echo "$service will use version: $CURRENT_VERSION"
+              echo "$service will use current version: $CURRENT_VERSION"
             else
-              echo "$service has changes - using new version: $(cat k8s-versions/${service}-version)"
+              echo "$VERSION" > k8s-versions/${service}-version
+              echo "$service will use new version: $VERSION"
             fi
           done
 
@@ -288,7 +301,7 @@ jobs:
               # Convert service name to upper case with underscores for variable name
               VAR_NAME=$(echo $service | tr '-' '_' | tr '[:lower:]' '[:upper:]')
               VERSION=$(cat k8s-versions/${service}-version)
-              sed -i "s|\$${VAR_NAME}_VERSION|${VERSION}|g" temp.yaml
+              sed -i "s|\${VAR_NAME}_VERSION|${VERSION}|g" temp.yaml
             done
             
             # Move to processed directory
