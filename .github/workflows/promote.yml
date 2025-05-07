@@ -67,7 +67,7 @@ jobs:
           # Find the latest versioned image for the service in source environment
           SOURCE_IMAGE=$(aws ecr describe-images \
             --repository-name blog-platform/$SERVICE \
-            --query "imageDetails[?contains(imageTags, \`latest-${SOURCE_TAG_SUFFIX}\`)].[imageTags, imageDigest]" \
+            --query "imageDetails[?imageTags && contains(imageTags, \`latest-${SOURCE_TAG_SUFFIX}\`)].[imageTags, imageDigest]" \
             --output json | jq -r '.[0][0][] | select(contains("latest-'${SOURCE_TAG_SUFFIX}'") | not) | select(contains("-'${SOURCE_TAG_SUFFIX}'"))' | sort -V | tail -n 1)
           
           if [ -z "$SOURCE_IMAGE" ]; then
@@ -83,7 +83,7 @@ jobs:
           # Get the image digest
           IMAGE_DIGEST=$(aws ecr describe-images \
             --repository-name blog-platform/$SERVICE \
-            --query "imageDetails[?contains(imageTags, \`${SOURCE_IMAGE}\`)].imageDigest" \
+            --query "imageDetails[?imageTags && contains(imageTags, \`${SOURCE_IMAGE}\`)].imageDigest" \
             --output text)
           
           if [ -z "$IMAGE_DIGEST" ]; then
