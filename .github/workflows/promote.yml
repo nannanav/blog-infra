@@ -132,7 +132,7 @@ jobs:
             
             # Create target tags based on target environment
             ECR_URL="${{ secrets.ECR_URL }}"
-            SOURCE_URI="http://575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/${SERVICE}@${IMAGE_DIGEST}"
+            SOURCE_URI="575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/${SERVICE}@${IMAGE_DIGEST}"
             
             # Set proper tags based on target environment
             if [ "$TARGET_ENV" == "prod" ]; then
@@ -150,7 +150,7 @@ jobs:
             
             # Tag and push with all appropriate tags
             for TARGET_TAG in "${TARGET_TAGS[@]}"; do
-              TARGET_URI="http://575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/${SERVICE}:${TARGET_TAG}"
+              TARGET_URI="575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/${SERVICE}:${TARGET_TAG}"
               echo "Tagging and pushing: $TARGET_URI"
               
               docker tag $SOURCE_URI $TARGET_URI

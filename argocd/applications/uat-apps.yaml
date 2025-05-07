@@ -22,7 +22,7 @@ spec:
     metadata:
       name: '{{name}}-uat'
       annotations:
-        argocd-image-updater.argoproj.io/image-list: '{{name}}=http://575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/{{name}}'
+        argocd-image-updater.argoproj.io/image-list: '{{name}}=575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/{{name}}'
         argocd-image-updater.argoproj.io/{{name}}.update-strategy: newest-build
         argocd-image-updater.argoproj.io/{{name}}.allow-tags: regexp:[0-9.]+\-rc$
         argocd-image-updater.argoproj.io/write-back-method: git
