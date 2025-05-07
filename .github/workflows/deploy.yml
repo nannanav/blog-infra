@@ -12,8 +12,8 @@ on:
           - qa
           - uat
           - prod
-      image_versions:
-        description: 'JSON object with image versions for each service'
+      deploy_info:
+        description: 'JSON object with image versions and changed services'
         required: true
         type: string
 
@@ -64,8 +64,12 @@ jobs:
           # Get list of all services
           services=("user-service" "post-service" "frontend" "comment-service")
           
-          # Parse the service versions JSON from input
-          IMAGE_VERSIONS='${{ github.event.inputs.image_versions }}'
+          # Parse the deploy info from input
+          DEPLOY_INFO='${{ github.event.inputs.deploy_info }}'
+          IMAGE_VERSIONS=$(echo $DEPLOY_INFO | jq -r '.images')
+          CHANGED_SERVICES=$(echo $DEPLOY_INFO | jq -r '.changed_services | join(" ")')
+          
+          echo "Changed services: $CHANGED_SERVICES"
           
           # Process all services
           for service in "${services[@]}"; do
@@ -105,6 +109,9 @@ jobs:
               echo "$service will use version from build: $VERSION"
             fi
           done
+          
+          # Export the list of changed services for use in later steps
+          echo "CHANGED_SERVICES=$CHANGED_SERVICES" >> $GITHUB_ENV
 
       - name: Process and deploy K8s manifests
         run: |
@@ -152,6 +159,7 @@ jobs:
           echo "Processed manifest files:"
           ls -la processed-manifests/
           
+          echo "Applying manifest files:"
           # Apply manifests to target namespace
           kubectl apply -f processed-manifests/ -n ${{ env.NAMESPACE }}
           
