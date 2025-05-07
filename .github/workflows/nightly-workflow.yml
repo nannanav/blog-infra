@@ -8,6 +8,295 @@ on:
 jobs:
   versioning:
     runs-on: ubuntu-latest
+    outputs:
+      changed_services: ${{ steps.detect_changes.outputs.changed_services }}
     steps:
       - name: Checkout the infra repo
         uses: actions/checkout@v3
+
+      - name: Checkout the source repo
+        uses: actions/checkout@v3
+        with:
+          repository: nannanav/blog-platform
+          token: ${{ secrets.GH_ACCESS_TOKEN }}
+          path: blog-platform
+          fetch-depth: 0  # Get full history for comparisons
+
+      - name: Detect changes since last nightly build
+        id: detect_changes
+        run: |
+          cd blog-platform
+          
+          # Find tag of last nightly build
+          LAST_NIGHTLY_TAG=$(git describe --tags --match "nightly-*" --abbrev=0 2>/dev/null || echo "")
+          
+          if [ -z "$LAST_NIGHTLY_TAG" ]; then
+            echo "No previous nightly tag found. Considering all services as changed."
+            echo "changed_services=user-service,post-service,frontend,comment-service" >> $GITHUB_OUTPUT
+          else
+            echo "Last nightly build tag: $LAST_NIGHTLY_TAG"
+            
+            # Check each service for changes
+            CHANGED_SERVICES=()
+            services=("user-service" "post-service" "frontend" "comment-service")
+            
+            for service in "${services[@]}"; do
+              if git diff --name-only $LAST_NIGHTLY_TAG HEAD -- "$service/" | grep -q .; then
+                CHANGED_SERVICES+=("$service")
+                echo "$service has changes since last nightly build"
+              else
+                echo "$service has no changes since last nightly build"
+              fi
+            done
+            
+            # Set output with comma-separated list of changed services
+            if [ ${#CHANGED_SERVICES[@]} -gt 0 ]; then
+              echo "changed_services=$(IFS=,; echo "${CHANGED_SERVICES[*]}")" >> $GITHUB_OUTPUT
+            else
+              echo "changed_services=" >> $GITHUB_OUTPUT
+            fi
+          fi
+          
+          # Create new nightly tag
+          NIGHTLY_TAG="nightly-$(date +'%Y%m%d')"
+          git tag $NIGHTLY_TAG
+          git push origin $NIGHTLY_TAG
+
+      - name: Get current version numbers
+        id: current_versions
+        run: |
+          cd blog-platform
+          
+          services=("user-service" "post-service" "frontend" "comment-service")
+          mkdir -p .changeset
+          
+          for service in "${services[@]}"; do
+            # Get latest stable version from ECR
+            LATEST_VERSION=$(aws ecr describe-images \
+              --repository-name blog-platform/$service \
+              --query 'imageDetails[?contains(imageTags, `stable`)].[imageTags]' \
+              --output text | grep -v "stable" | sort -V | tail -n 1 || echo "1.0.0")
+            
+            # If no version found, default to 1.0.0
+            if [ -z "$LATEST_VERSION" ]; then
+              LATEST_VERSION="1.0.0"
+            fi
+            
+            # Check if there are changes since last QA image
+            LATEST_QA_TAG=$(aws ecr describe-images \
+              --repository-name blog-platform/$service \
+              --query 'imageDetails[?contains(imageTags, `latest-qa`)].[imageTags]' \
+              --output text | grep -v "latest-qa" | sort -V | tail -n 1 || echo "")
+              
+            # If no changes for this service, skip version bump
+            if [[ -z "${{ needs.versioning.outputs.changed_services }}" ]] || ! echo "${{ needs.versioning.outputs.changed_services }}" | grep -q "$service"; then
+              echo "No changes detected for $service, skipping version bump"
+              echo "skip" > .changeset/${service}-version
+              continue
+            fi
+            
+            # Look at commit messages to determine version bump type
+            LAST_STABLE_TAG=$(git describe --tags --match "$service-v*" --abbrev=0 2>/dev/null || echo "")
+            if [ -z "$LAST_STABLE_TAG" ]; then
+              # No previous tag, default to patch bump
+              BUMP_TYPE="patch"
+            else
+              # Check commit messages for bump type keywords
+              if git log $LAST_STABLE_TAG..HEAD --grep="major" -i | grep -q .; then
+                BUMP_TYPE="major"
+              elif git log $LAST_STABLE_TAG..HEAD --grep="minor" -i | grep -q .; then
+                BUMP_TYPE="minor"
+              else
+                BUMP_TYPE="patch"
+              fi
+            fi
+            
+            # Parse current version components
+            MAJOR=$(echo $LATEST_VERSION | cut -d. -f1)
+            MINOR=$(echo $LATEST_VERSION | cut -d. -f2)
+            PATCH=$(echo $LATEST_VERSION | cut -d. -f3)
+            
+            # Bump version according to commit messages
+            if [ "$BUMP_TYPE" == "major" ]; then
+              NEW_VERSION="$((MAJOR + 1)).0.0"
+              echo "$service: Bumping MAJOR version from $LATEST_VERSION to $NEW_VERSION"
+            elif [ "$BUMP_TYPE" == "minor" ]; then
+              NEW_VERSION="${MAJOR}.$((MINOR + 1)).0"
+              echo "$service: Bumping MINOR version from $LATEST_VERSION to $NEW_VERSION"
+            else
+              NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+              echo "$service: Bumping PATCH version from $LATEST_VERSION to $NEW_VERSION"
+            fi
+            
+            # Save version to file for later steps
+            echo $NEW_VERSION > .changeset/${service}-version
+          done
+
+  docker-build-push:
+    needs: versioning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout infra repo
+        uses: actions/checkout@v3
+
+      - name: Checkout source repo
+        uses: actions/checkout@v3
+        with:
+          repository: nannanav/blog-platform
+          token: ${{ secrets.GH_ACCESS_TOKEN }}
+          path: blog-platform
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Create version tracking directory
+        run: mkdir -p k8s-versions
+
+      - name: Build and Push Docker images for updated services
+        run: |
+          # Get list of changed services
+          IFS=',' read -r -a CHANGED_SERVICES <<< "${{ needs.versioning.outputs.changed_services }}"
+          
+          if [ ${#CHANGED_SERVICES[@]} -eq 0 ]; then
+            echo "No services have changes. Skipping build and push."
+            exit 0
+          fi
+          
+          for service in "${CHANGED_SERVICES[@]}"; do
+            echo "Building and pushing $service"
+            
+            # Read the new version number - skip if marked to skip
+            if [[ -f blog-platform/.changeset/${service}-version ]] && [[ $(cat blog-platform/.changeset/${service}-version) == "skip" ]]; then
+              echo "Skipping $service as it has no changes since the last QA image"
+              
+              # Get current latest-qa tag for this service
+              CURRENT_QA_VERSION=$(aws ecr describe-images \
+                --repository-name blog-platform/$service \
+                --query 'imageDetails[?contains(imageTags, `latest-qa`)].[imageTags]' \
+                --output text | grep -v "latest-qa" | sort -V | tail -n 1 || echo "1.0.0-qa")
+              
+              echo "$CURRENT_QA_VERSION" > k8s-versions/${service}-version
+              continue
+            fi
+            
+            # Read the version number
+            VERSION=$(cat blog-platform/.changeset/${service}-version)
+            
+            # Ensure ECR repository exists
+            aws ecr describe-repositories --repository-names blog-platform/$service || \
+              aws ecr create-repository --repository-name blog-platform/$service
+            
+            # Build and push Docker image for both amd64 and arm64
+            docker buildx build --platform linux/amd64,linux/arm64 \
+              --push \
+              -t ${{ secrets.ECR_URL }}/blog-platform/$service:${VERSION}-qa \
+              -t ${{ secrets.ECR_URL }}/blog-platform/$service:latest-qa \
+              -f blog-platform/$service/Dockerfile blog-platform/$service
+            
+            # Store version for deployment step
+            echo "${VERSION}-qa" > k8s-versions/${service}-version
+          done
+
+      - name: Upload version files
+        uses: actions/upload-artifact@v2
+        with:
+          name: k8s-versions
+          path: k8s-versions/
+
+  deploy:
+    needs: [versioning, docker-build-push]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout infra repo
+        uses: actions/checkout@v3
+
+      - name: Download version files
+        uses: actions/download-artifact@v2
+        with:
+          name: k8s-versions
+          path: k8s-versions
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+
+      - name: Set versions for services without changes
+        run: |
+          # Get list of all services
+          services=("user-service" "post-service" "frontend" "comment-service")
+          
+          # Get list of changed services
+          IFS=',' read -r -a CHANGED_SERVICES <<< "${{ needs.versioning.outputs.changed_services }}"
+          
+          # For services without changes, get current deployed version in QA
+          for service in "${services[@]}"; do
+            if [[ ! " ${CHANGED_SERVICES[@]} " =~ " ${service} " ]]; then
+              echo "Getting current QA version for $service"
+              
+              # Try to get current version from K8s deployment or use latest from ECR
+              CURRENT_VERSION=$(kubectl get deployment -n qa ${service} -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null | awk -F: '{print $2}' || echo "")
+              
+              if [ -z "$CURRENT_VERSION" ]; then
+                # If not deployed yet, use latest from ECR with qa tag
+                CURRENT_VERSION=$(aws ecr describe-images \
+                  --repository-name blog-platform/$service \
+                  --query 'imageDetails[?contains(imageTags, `latest-qa`)].[imageTags]' \
+                  --output text | grep -v "latest-qa" | sort -V | tail -n 1 || echo "1.0.0-qa")
+              fi
+              
+              echo "$CURRENT_VERSION" > k8s-versions/${service}-version
+              echo "$service will use version: $CURRENT_VERSION"
+            else
+              echo "$service has changes - using new version: $(cat k8s-versions/${service}-version)"
+            fi
+          done
+
+      - name: Process and deploy K8s manifests
+        run: |
+          # Create processed manifest directory
+          mkdir -p processed-manifests
+          
+          # Process all manifest files and replace placeholders
+          for file in manifests/qa/*.yaml; do
+            echo "Processing $file"
+            
+            # Start with the original file
+            cat $file > temp.yaml
+            
+            # Replace ECR_URL
+            sed -i "s|\$ECR_URL|${{ secrets.ECR_URL }}|g" temp.yaml
+            
+            # Replace service versions
+            services=("user-service" "post-service" "frontend" "comment-service")
+            for service in "${services[@]}"; do
+              # Convert service name to upper case with underscores for variable name
+              VAR_NAME=$(echo $service | tr '-' '_' | tr '[:lower:]' '[:upper:]')
+              VERSION=$(cat k8s-versions/${service}-version)
+              sed -i "s|\$${VAR_NAME}_VERSION|${VERSION}|g" temp.yaml
+            done
+            
+            # Move to processed directory
+            mv temp.yaml processed-manifests/$(basename $file)
+          done
+          
+          # Apply manifests to QA namespace
+          kubectl apply -f processed-manifests/ -n qa
+          
+          # Verify deployments
+          kubectl get deployments -n qa
