@@ -14,6 +14,6 @@ spec:
     spec:
       containers:
       - name: comment-service
-        image: ${ECR_REGISTRY}/blog-platform/comment-service:latest
+        image: ${ECR_URL}/blog-platform/comment-service:latest
         ports:
         - containerPort: 8083

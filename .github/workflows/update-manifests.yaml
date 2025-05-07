@@ -1,0 +1,70 @@
+name: Update Image Tags in Git
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment (qa, uat, prod)'
+        required: true
+        type: choice
+        options:
+          - qa
+          - uat
+          - prod
+      deploy_info:
+        description: 'JSON object with image versions and changed services'
+        required: true
+        type: string
+
+jobs:
+  update-git:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        
+      - name: Parse deploy info
+        id: parse
+        run: |
+          DEPLOY_INFO='${{ github.event.inputs.deploy_info }}'
+          IMAGE_VERSIONS=$(echo $DEPLOY_INFO | jq -r '.images')
+          CHANGED_SERVICES=$(echo $DEPLOY_INFO | jq -r '.changed_services | join(" ")')
+          
+          echo "image_versions=$IMAGE_VERSIONS" >> $GITHUB_OUTPUT
+          echo "changed_services=$CHANGED_SERVICES" >> $GITHUB_OUTPUT
+          
+      - name: Update kustomization files
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          IMAGE_VERSIONS='${{ steps.parse.outputs.image_versions }}'
+          CHANGED_SERVICES=(${{ steps.parse.outputs.changed_services }})
+          
+          # Handle prod environment directory name
+          if [ "$ENV" == "prod" ]; then
+            ENV_DIR="prod"
+          else
+            ENV_DIR="$ENV"
+          fi
+          
+          # Update each service's kustomization.yaml
+          for service in "${CHANGED_SERVICES[@]}"; do
+            VERSION=$(echo $IMAGE_VERSIONS | jq -r --arg svc "$service" '.[$svc]')
+            KUSTOMIZATION_FILE="manifests/$ENV_DIR/$service/kustomization.yaml"
+            
+            if [ -f "$KUSTOMIZATION_FILE" ]; then
+              echo "Updating $KUSTOMIZATION_FILE with version $VERSION"
+              # Use sed to update the newTag value
+              sed -i "s|newTag:.*|newTag: $VERSION  # Updated by CI/CD pipeline|" "$KUSTOMIZATION_FILE"
+            else
+              echo "Warning: Kustomization file not found: $KUSTOMIZATION_FILE"
+            fi
+          done
+          
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          git add manifests/
+          git commit -m "Update image tags for ${{ github.event.inputs.environment }} environment [skip ci]" || echo "No changes to commit"
+          git push

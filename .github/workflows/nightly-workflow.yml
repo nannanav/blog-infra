@@ -252,7 +252,7 @@ jobs:
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              workflow_id: 'deploy.yml',
+              workflow_id: 'update-manifests.yml',
               ref: context.ref,
               inputs: {
                 environment: 'qa',

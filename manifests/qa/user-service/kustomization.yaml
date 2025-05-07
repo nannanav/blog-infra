@@ -7,6 +7,6 @@ resources:
 namespace: qa
 
 images:
-- name: ${ECR_REGISTRY}/blog-platform/user-service
-  newName: ${ECR_REGISTRY}/blog-platform/user-service
+- name: ${ECR_URL}/blog-platform/user-service
+  newName: ${ECR_URL}/blog-platform/user-service
   newTag: 1.0.0-qa  # This will be updated by ArgoCD Image Updater

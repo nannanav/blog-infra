@@ -7,6 +7,6 @@ resources:
 namespace: uat
 
 images:
-- name: ${ECR_REGISTRY}/blog-platform/frontend
-  newName: ${ECR_REGISTRY}/blog-platform/frontend
+- name: ${ECR_URL}/blog-platform/frontend
+  newName: ${ECR_URL}/blog-platform/frontend
   newTag: 1.0.0-rc  # This will be updated by ArgoCD Image Updater
