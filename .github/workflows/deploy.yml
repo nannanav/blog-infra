@@ -97,7 +97,7 @@ jobs:
                 
                 CURRENT_VERSION=$(aws ecr describe-images \
                   --repository-name blog-platform/$service \
-                  --query "imageDetails[?contains(imageTags, \`latest-${TAG_SUFFIX}\`)].[imageTags]" \
+                  --query 'imageDetails[?imageTags && contains(imageTags, \`latest-${TAG_SUFFIX}\`)].[imageTags]' \
                   --output text | grep -v "latest-${TAG_SUFFIX}" | sort -V | tail -n 1 || echo "1.0.0-${TAG_SUFFIX}")
               fi
               
