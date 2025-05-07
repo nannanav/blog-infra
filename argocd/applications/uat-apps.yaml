@@ -29,7 +29,7 @@ spec:
     spec:
       project: default
       source:
-        repoURL: https://github.com/blog-platform/blog-infra.git
+        repoURL: https://github.com/nannanav/blog-infra.git
         targetRevision: main
         path: '{{path}}'
       destination:
