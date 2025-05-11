@@ -16,10 +16,17 @@ spec:
       activeService: comment-service
       previewService: comment-service-preview
       autoPromotionEnabled: true
+      activeMetadata:
+        labels:
+          version: green
+      previewMetadata:
+        labels:
+          version: blue
   template:
     metadata:
       labels:
         app: comment-service
+        version: blue
     spec:
       containers:
       - name: comment-service
