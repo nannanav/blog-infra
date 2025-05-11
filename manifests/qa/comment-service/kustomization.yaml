@@ -9,4 +9,4 @@ namespace: qa
 images:
 - name: 575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/comment-service
   newName: 575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/comment-service
-  newTag: 1.0.0-qa  # This will be updated by ArgoCD Image Updater
+  newTag: 1.0.1-qa  # Updated by CI/CD pipeline
