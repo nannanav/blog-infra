@@ -1,4 +1,5 @@
 # Comment Service Service
+# manifests/qa/comment-service/comment-service.yaml
 apiVersion: v1
 kind: Service
 metadata:
