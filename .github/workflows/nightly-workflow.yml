@@ -89,7 +89,7 @@ jobs:
               --repository-name blog-platform/$service \
               --query 'imageDetails[?imageTags && contains(imageTags, `stable`)].[imageTags]' \
               --region us-east-1 \
-              --output json | jq -r '.[][][]' | grep -v "stable" | sort -V | tail -n 1 || echo "1.0.0")
+              --output json | jq -r '.[][][]' | grep -v "stable" | grep -v "latest" | sort -V | tail -n 1 || echo "1.0.0")
             
             # If no version found, default to 1.0.0
             if [ -z "$LATEST_VERSION" ]; then
@@ -98,11 +98,11 @@ jobs:
             fi
             
             # Check if there are changes since last QA image
-            LATEST_QA_TAG=$(aws ecr describe-images \
-              --repository-name blog-platform/$service \
-              --query 'imageDetails[?imageTags && contains(imageTags, `latest-qa`)].[imageTags]' \
-              --region us-east-1 \
-              --output json | jq -r '.[][][]' | grep -v "latest-qa" | sort -V | tail -n 1 || echo "")
+            # LATEST_QA_TAG=$(aws ecr describe-images \
+            #   --repository-name blog-platform/$service \
+            #   --query 'imageDetails[?imageTags && contains(imageTags, `latest-qa`)].[imageTags]' \
+            #   --region us-east-1 \
+            #   --output json | jq -r '.[][][]' | grep -v "latest-qa" | sort -V | tail -n 1 || echo "")
               
             # If no changes for this service, mark it to be skipped
             if [[ -z "${{ steps.detect_changes.outputs.changed_services }}" ]] || ! echo "${{ steps.detect_changes.outputs.changed_services }}" | grep -q "$service"; then
