@@ -4,7 +4,8 @@ kind: Service
 metadata:
   name: frontend
   namespace: blog
-  labels: green
+  labels: 
+    color: green
 spec:
   selector:
     app: frontend

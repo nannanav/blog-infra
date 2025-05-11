@@ -4,7 +4,8 @@ kind: Service
 metadata:
   name: user-service
   namespace: blog
-  labels: green
+  labels: 
+    color: green
 spec:
   selector:
     app: user-service

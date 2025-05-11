@@ -5,7 +5,8 @@ kind: Service
 metadata:
   name: comment-service
   namespace: blog
-  labels: green
+  labels: 
+    color: green
 spec:
   selector:
     app: comment-service
