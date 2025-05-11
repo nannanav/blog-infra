@@ -9,7 +9,6 @@ metadata:
 spec:
   selector:
     app: post-service
-    version: green
   ports:
   - port: 8082
     targetPort: 8082
@@ -24,7 +23,6 @@ metadata:
 spec:
   selector:
     app: post-service
-    version: blue
   ports:
   - port: 8082
     targetPort: 8082

@@ -15,6 +15,12 @@ spec:
       activeService: frontend
       previewService: frontend-preview
       autoPromotionEnabled: true
+      activeMetadata:
+        labels:
+          version: green
+      previewMetadata:
+        labels:
+          version: blue
   template:
     metadata:
       labels:

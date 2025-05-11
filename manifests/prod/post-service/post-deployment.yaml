@@ -15,6 +15,12 @@ spec:
       activeService: post-service
       previewService: post-service-preview
       autoPromotionEnabled: true
+      activeMetadata:
+        labels:
+          version: green
+      previewMetadata:
+        labels:
+          version: blue
   template:
     metadata:
       labels:
