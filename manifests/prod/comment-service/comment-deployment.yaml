@@ -26,7 +26,6 @@ spec:
     metadata:
       labels:
         app: comment-service
-        version: blue
     spec:
       containers:
       - name: comment-service

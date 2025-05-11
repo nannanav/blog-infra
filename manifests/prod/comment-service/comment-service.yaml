@@ -10,7 +10,6 @@ metadata:
 spec:
   selector:
     app: comment-service
-    version: green
   ports:
   - port: 8083
     targetPort: 8083
@@ -25,7 +24,6 @@ metadata:
 spec:
   selector:
     app: comment-service
-    version: blue
   ports:
   - port: 8083
     targetPort: 8083
