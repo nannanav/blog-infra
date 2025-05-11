@@ -10,6 +10,11 @@ spec:
   selector:
     matchLabels:
       app: user-service
+  strategy:
+    blueGreen:
+      activeService: user-service
+      previewService: user-service-preview
+      autoPromotionEnabled: true
   template:
     metadata:
       labels:

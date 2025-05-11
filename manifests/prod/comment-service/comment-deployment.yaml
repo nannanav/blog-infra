@@ -11,6 +11,11 @@ spec:
   selector:
     matchLabels:
       app: comment-service
+  strategy:
+    blueGreen:
+      activeService: comment-service
+      previewService: comment-service-preview
+      autoPromotionEnabled: true
   template:
     metadata:
       labels:

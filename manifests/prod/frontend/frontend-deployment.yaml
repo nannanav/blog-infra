@@ -10,6 +10,11 @@ spec:
   selector:
     matchLabels:
       app: frontend
+  strategy:
+    blueGreen:
+      activeService: frontend
+      previewService: frontend-preview
+      autoPromotionEnabled: true
   template:
     metadata:
       labels:
