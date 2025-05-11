@@ -112,7 +112,7 @@ jobs:
             fi
             
             # Look at commit messages to determine version bump type
-            LAST_STABLE_TAG=$(git describe --tags --match "$service-v*" --abbrev=0 2>/dev/null || echo "")
+            LAST_STABLE_TAG=$(git describe --tags --match "$nightly*" --abbrev=0 2>/dev/null || echo "")
             if [ -z "$LAST_STABLE_TAG" ]; then
               # No previous tag, default to patch bump
               echo "No previous tag, default to patch bump"
