@@ -5,7 +5,7 @@ kind: Kustomization
 namespace: qa
 
 resources:
-- ../../base/comment-service
+# - ../../base/comment-service
 - comment-service.yaml  # <-- include your Service
 - comment-deployment.yaml  # <-- optionally override base Deployment too
 
