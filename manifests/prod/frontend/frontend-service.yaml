@@ -20,6 +20,8 @@ kind: Service
 metadata:
   name: frontend-preview
   namespace: blog
+  labels:
+    color: blue
 spec:
   selector:
     app: frontend

@@ -18,8 +18,6 @@ spec:
         path: manifests/prod/post-service
       - name: frontend
         path: manifests/prod/frontend
-      - name: frontend-preview
-        path: manifests/prod/frontend
       - name: user-service
         path: manifests/prod/user-service
       - name: user-service-preview
