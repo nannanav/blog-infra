@@ -11,4 +11,4 @@ namespace: qa
 images:
 - name: 575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/frontend
   newName: 575108917104.dkr.ecr.us-east-1.amazonaws.com/blog-platform/frontend
-  newTag: 2.2.0-qa  # Updated by CI/CD pipeline
+  newTag: 2.3.0-qa  # Updated by CI/CD pipeline
