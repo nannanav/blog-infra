@@ -24,6 +24,8 @@ metadata:
   name: success-rate
   namespace: blog
 spec:
+  args:  # Add this section to declare the expected argument
+  - name: service-name
   metrics:
   - name: success-rate
     interval: 20s
