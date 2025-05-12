@@ -4,6 +4,8 @@ metadata:
   name: smoke-tests
   namespace: blog
 spec:
+  args:
+  - name: service-name
   metrics:
   - name: webcheck
     provider:
