@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: smoke-tests
+  namespace: blog
+spec:
+  metrics:
+  - name: webcheck
+    provider:
+      web:
+        url: "http://{{args.service-name}}.blog.svc.cluster.local/health"
+        timeoutSeconds: 5
+        jsonPath: "{$.status}"
+        insecure: true
+    successCondition: result == "ok"
+    count: 2
+    interval: 10s
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate
+  namespace: blog
+spec:
+  metrics:
+  - name: success-rate
+    interval: 20s
+    count: 5
+    successCondition: result >= 0.95
+    failureCondition: result < 0.95
+    provider:
+      prometheus:
+        address: http://prometheus-server.monitoring.svc.cluster.local:9090
+        query: |
+          sum(rate(http_requests_total{service="{{args.service-name}}",status=~"2.."}[1m])) 
+          / 
+          sum(rate(http_requests_total{service="{{args.service-name}}"}[1m]))
