@@ -21,6 +21,8 @@ kind: Service
 metadata:
   name: comment-service-preview
   namespace: blog
+  labels:
+    color: blue
 spec:
   selector:
     app: comment-service

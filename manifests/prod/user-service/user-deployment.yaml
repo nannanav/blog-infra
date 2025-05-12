@@ -14,13 +14,15 @@ spec:
     blueGreen:
       activeService: user-service
       previewService: user-service-preview
-      autoPromotionEnabled: true
       activeMetadata:
         labels:
           version: green
+      autoPromotionEnabled: false  # Keep this as false for manual control
       previewMetadata:
         labels:
           version: blue
+      scaleDownDelaySeconds: 300
+      abortScaleDownDelaySeconds: 600
   template:
     metadata:
       labels:

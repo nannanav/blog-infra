@@ -2,9 +2,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-# - ../../base/comment-service
-- comment-service.yaml  # <-- include your Service
-- comment-deployment.yaml  # <-- optionally override base Deployment too
+- comment-service.yaml
+- comment-deployment.yaml
 
 namespace: blog
 

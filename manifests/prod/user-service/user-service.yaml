@@ -1,3 +1,4 @@
+# manifests/prod/user-service/user-service.yaml
 # Active Service
 apiVersion: v1
 kind: Service
@@ -20,6 +21,8 @@ kind: Service
 metadata:
   name: user-service-preview
   namespace: blog
+  labels:
+    color: blue
 spec:
   selector:
     app: user-service
