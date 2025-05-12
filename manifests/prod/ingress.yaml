@@ -15,8 +15,10 @@ spec:
   - hosts:
     - nannan.click
     - www.nannan.click
-    - preview.nannan.click
     secretName: tls-secret
+  - hosts:
+    - preview.nannan.click
+    secretName: tls-secret-preview
   rules:
   - host: nannan.click
     http:
