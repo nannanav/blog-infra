@@ -15,19 +15,7 @@ spec:
         labels:
           version: green
       activeService: frontend
-      autoPromotionEnabled: false
-      postPromotionAnalysis:
-        templates:
-          - templateName: success-rate
-            args:
-              - name: service-name
-                value: frontend
-      prePromotionAnalysis:
-        templates:
-          - templateName: smoke-tests
-            args:
-              - name: service-name
-                value: frontend-preview
+      autoPromotionEnabled: false  # Keep this as false for manual control
       previewMetadata:
         labels:
           version: blue
