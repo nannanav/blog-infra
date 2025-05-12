@@ -15,6 +15,7 @@ spec:
   - hosts:
     - nannan.click
     - www.nannan.click
+    - preview.nannan.click
     secretName: tls-secret
   rules:
   - host: nannan.click
@@ -77,5 +78,36 @@ spec:
         backend:
           service:
             name: comment-service
+            port:
+              number: 8083
+  - host: preview.nannan.click
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-preview
+            port:
+              number: 80
+      - path: /user-service(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: user-service-preview
+            port:
+              number: 8081
+      - path: /post-service(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: post-service-preview
+            port:
+              number: 8082
+      - path: /comment-service(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: comment-service-preview
             port:
               number: 8083
